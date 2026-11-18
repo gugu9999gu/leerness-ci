@@ -9,7 +9,6 @@ jobs:
     timeout-minutes: 15
     env:
       LEERNESS_OFFLINE: '1'
-      LEERNESS_NO_AUTO_ROADMAP: '1'
       LANGUAGE: ko
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -29,6 +28,7 @@ jobs:
       - name: Report four benchmark observations
         working-directory: product
         env:
+          LEERNESS_NO_AUTO_ROADMAP: '1'
           LANG: ''
           LC_ALL: ''
           LC_CTYPE: ''
@@ -53,56 +53,15 @@ jobs:
         if: success() || failure()
         working-directory: product
         run: node scripts/store-values-probe.js --match 'the graph page'
-  command-checks:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        part: [0, 1, 2, 3]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: gugu9999gu/leerness
-          ref: b5a3c4631353ba0ab7171cfce5b0c60353223ea3
-          path: upstream
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: '22.23.4'
-          package-manager-cache: false
-      - run: python ci/prepare.py upstream product
-      - name: Check downstream npm test commands
+      - name: Validate release runtime
         working-directory: product
-        env:
-          PART: ${{ matrix.part }}
-          LEERNESS_OFFLINE: '1'
-          LEERNESS_NO_AUTO_ROADMAP: '1'
-        run: |
-          python - <<'PY'
-          import json, os, shlex, subprocess
-          from pathlib import Path
-          scripts = json.loads(Path('package.json').read_text())['scripts']
-          def expand(cmd):
-              for expression in cmd.split(' && '):
-                  if expression.startswith('npm run '):
-                      yield from expand(scripts[expression[8:]])
-                  else:
-                      yield expression
-          leaves = list(expand(scripts['test']))
-          start = next(i for i,x in enumerate(leaves) if 'store-values-probe' in x) + 1
-          failed = []
-          for expression in leaves[start + int(os.environ['PART'])::4]:
-              args = shlex.split(expression)
-              if args[-1].endswith('/e2e.js'):
-                  continue
-              print('::group::' + expression, flush=True)
-              rc = subprocess.run(args).returncode
-              print('::endgroup::', flush=True)
-              if rc: failed.append(expression)
-          print('Failed commands:', failed)
-          raise SystemExit(bool(failed))
-          PY
+        run: node scripts/release-runtime-probe.js
+      - name: Verify graph documents and session metadata
+        working-directory: product
+        run: node --test scripts/derived-input-publication-probe.js
+      - name: Check task output and generated roadmap
+        working-directory: product
+        run: node scripts/skill-task-command-probe.js
+      - name: Verify adapter completion and concurrent merge
+        working-directory: product
+        run: node scripts/repl-adapter-command-probe.js

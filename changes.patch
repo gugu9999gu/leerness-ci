@@ -1,5 +1,5 @@
 diff --git a/bin/leerness.js b/bin/leerness.js
-index fb0c37b5..ffb1e7fd 100644
+index fb0c37b5..a858997d 100644
 --- a/bin/leerness.js
 +++ b/bin/leerness.js
 @@ -408 +408 @@
@@ -1383,6 +1383,9 @@ index fb0c37b5..ffb1e7fd 100644
 -      { cmd: 'sessions [path] [--json]', desc: '이 프로젝트에 남은 **다른 AI 세션 기록** (1.36.129, P-0016 P1) — 기록만 보여 주고 프로세스 상태는 판정하지 않는다', descEn: 'session records left by other AI sessions in this project (1.36.129, P-0016 P1) — records only; process state is never judged' },
 +      { cmd: 'wakeup-interval get|set|auto|history|record', desc: 'adaptive wakeup', descEn: 'adaptive wakeup interval' },
 +      { cmd: 'sessions [path] [--json]', desc: '이 프로젝트에 남은 **다른 AI 세션 기록** — 기록만 보여 주고 프로세스 상태는 판정하지 않는다', descEn: 'session records left by other AI sessions in this project — records only; process state is never judged' },
+@@ -11948 +11983 @@
+-      { cmd: 'loop open|round|decide|status [--json]', desc: '같은 주제의 반복 검수·수리 회차 기록 (기본 한도 3회) — 모든 worktree 공유, STOP 은 exit 3', descEn: 'records repeated review or fix rounds on one subject (default cap 3); shared by all worktrees; STOP exits 3' },
++      { cmd: 'loop open|round|decide|status [--json]', desc: '같은 주제의 반복 검수·수리 회차 기록 (기본 한도 10회) — 모든 worktree 공유, STOP 은 exit 3', descEn: 'records repeated review or fix rounds on one subject (default cap 10); shared by all worktrees; STOP exits 3' },
 @@ -11950,9 +11985,9 @@
 -      { cmd: 'parent detect|adopt [--select <kinds>] [--apply]', desc: '상위 leerness 부모 탐지 + 자산 게이트형 adopt (1.30.2~3)', descEn: 'detect a parent leerness above + gated asset adoption (1.30.2~3)' },
 -      { cmd: 'intent classify|expand|domains "<request>"', desc: '의도 파악 + scope (1.9.213)', descEn: 'infer intent + scope (1.9.213)' },
@@ -2913,6 +2916,9 @@ index fb0c37b5..ffb1e7fd 100644
 @@ -32972 +33123 @@
 -      log(`# leerness lsp references (1.9.167)`);
 +      log(`# leerness lsp references`);
+@@ -33153 +33304 @@
+-  leerness loop open|round|decide|status [--json]  # 같은 주제의 반복 검수·수리 회차 기록 (기본 한도 3회) — STOP 은 exit 3
++  leerness loop open|round|decide|status [--json]  # 같은 주제의 반복 검수·수리 회차 기록 (기본 한도 10회) — STOP 은 exit 3
 @@ -33218,6 +33369,4 @@
 -    try {
 -      const report = assessRuleArguments(assessmentArgv.slice(2));
@@ -4204,6 +4210,24 @@ index c4784351..b7208e93 100644
 @@ -730 +744 @@
 -module.exports = { mutationRecoveryFolder, log, ok, warn, fail, failJson, setQuiet, today, now, absRoot, exists, read, readBuf,
 +module.exports = { mutationRecoveryFolder, log, ok, warn, fail, failJson, setQuiet, withIsolatedOutput, today, now, absRoot, exists, read, readBuf,
+diff --git a/lib/loop-guard.js b/lib/loop-guard.js
+index 29a020cd..200612dd 100644
+--- a/lib/loop-guard.js
++++ b/lib/loop-guard.js
+@@ -20 +20 @@
+-const MAX_BYTES = 262144, DEFAULT_CAP = 3, MAX_EXTENSIONS = 2, MAX_ROUNDS = 16, MAX_LOOPS = 32, MAX_DECISIONS = 8;
++const MAX_BYTES = 262144, DEFAULT_CAP = 10, MAX_EXTENSIONS = 2, MAX_ROUNDS = 16, MAX_LOOPS = 32, MAX_DECISIONS = 8;
+@@ -78 +78,3 @@
+-    exact(l, ['id', 'subject', 'subjectKey', 'openedAt', 'cap', 'extensions', 'state', 'stop', 'rounds', 'decisions', 'closedAt', 'outcome'], 'loop');
++    const hasInitialCap = Object.hasOwn(l, 'initialCap');
++    if (hasInitialCap && l.initialCap !== DEFAULT_CAP) throw corrupt('initialCap');
++    exact(l, [...(hasInitialCap ? ['initialCap'] : []), 'id', 'subject', 'subjectKey', 'openedAt', 'cap', 'extensions', 'state', 'stop', 'rounds', 'decisions', 'closedAt', 'outcome'], 'loop');
+@@ -99 +101 @@
+-    let cap = DEFAULT_CAP, extensions = 0;
++    let cap = hasInitialCap ? l.initialCap : 3, extensions = 0;
+@@ -183 +185 @@
+-    const loop = { id: `L-${String(ledger.nextId).padStart(4, '0')}`, subject: op.subject, subjectKey: op.subjectKey, openedAt: at, cap: DEFAULT_CAP, extensions: 0, state: 'open', stop: null, rounds: [], decisions: [], closedAt: null, outcome: null };
++    const loop = { id: `L-${String(ledger.nextId).padStart(4, '0')}`, subject: op.subject, subjectKey: op.subjectKey, openedAt: at, initialCap: DEFAULT_CAP, cap: DEFAULT_CAP, extensions: 0, state: 'open', stop: null, rounds: [], decisions: [], closedAt: null, outcome: null };
 diff --git a/lib/mcp-tools.js b/lib/mcp-tools.js
 index 11259b74..69eb4f84 100644
 --- a/lib/mcp-tools.js
@@ -4439,18 +4463,57 @@ index 3223ec9c..16400e5f 100644
 @@ -2243 +2243 @@
 -  return `# Feature Graph (1.9.141)\n\n` +
 +  return `# Feature Graph\n\n` +
+diff --git a/lib/retired-guidance-sections.js b/lib/retired-guidance-sections.js
+index d83e7770..de4ad4dc 100644
+--- a/lib/retired-guidance-sections.js
++++ b/lib/retired-guidance-sections.js
+@@ -21 +21 @@
+-const GENERATED_LAYOUTS = ["01153947b4e5f2e444e5103282b22ede","052656db128f2277290cb41739531a97","076fb8788b2008ea655e613b5cd11756","08a46f061c4560d2b9b6a00f01e4a793","0978ee83b070dc19e9c809e6194c4221","0d2ced6a73819331065e44cd01fcb146","11724f2e9ac4b2bb7281a7cd1249e02d","1550f3e3d239915f04d6f7510d17df23","1b4fe761d17aa9d237cbde6d24f8f6d5","1bddace9c95d8f1d8df8d778f51328df","1f7f918fbde8ff1d984126442d828684","20c2c6c753fa71e99e8ebf6300136438","2106d6e62d8241f9f97588d83db38925","21b17e513c99e0daf663deae83b56f1d","25cb871a8176087a8b349795d23dc92b","28a15290f8f30ad850f5af53f705d278","2c825d670bb79ed1409c8ff32400a1d3","32aa62ebe3665a4f0687f9091abd73f5","3754ec378a5d7c375f15030f3de02dfb","387549632f6d2223924b57a5b03e50dd","3a51c56dcc6e06290bad956624af6270","3b29777f35c3bd5fcd613a642edb45d2","3d1cb8beb0dc057871a36752d0744d12","3d5de1f0a99347067cc2d2d7f8b9cdac","3db27757c0594f1fcfd5511bbc09ab9e","429b784f3d9119b2841ef545522923ee","4418877c9a6447b50d7d504f618ab375","45328305f98c61879c541da7eaf075c5","4b0c18c55d625b4c69389b8bd31eca06","4ce017990fd29f139ec1b0ce93535138","4dfb82ca79b0be2f2954ae5640f8ceae","4e0a7827626caa1693a7173888349d45","4e623189b1ab38eac2d51dafed3a530c","50129584483ad916c775af14cfb61af8","5056e92fd955349a8894108b903b2032","53c202f51c85e91115e4f64a78acfe39","583a502bb97082adbd87bea21649a224","5abbd2f5e6cc3898c5185fc9f0b7ea7c","5b26674332a9415c1253ea97baa2b9c3","5bbdc75bcc70fa5f3ebbf4765282ccde","5dbd54b1d99292909c29fceff5701da9","5f5880e6ec87a21a5ce624d3ae957087","6516fb1e2c3fcb176b8d96c41a676c77","6576f4abe84d9b21857210730d718841","6615305e9e2178f2a3df3b040a5cd20b","69e4339dbb512026c3656785ae6db8ec","6c789b4a25f6a98d71931ea300856414","6d0cb776c8aa5600197e3a11d401a3b1","7303f424fa7c2c203ed9e526f5e80440","7e7a87e7712fca0e95ca053c04bdaa46","85b528cce3d1d67489c465ab5f4d0ee2","8807aee0d9e33bc5eeccf63f3ae58f0d","88e35f2497a9da15164a928473202088","8ab9df52f3d0998c9c94e3d85ff1121b","8f06dcaa14c22d409bb681b7a6410e28","8fca19e48df979034b7b600fa3a3acb2","90f4dfeef401d58b5ede6ae0f8e24542","93fef1d7268cbdc7b3ba8b73aba26d7d","94f97d07f389c7ee7b1523be38f445ba","a15b3d4b3dfe5f944ed9b9d18b84ef45","a4f18667ae6b759abe915572bf87d6e5","a4ff7da46e24c1b9aeb24fd45db3d90d","a50211b49c2c5a2bcf729b26add488e5","a9980a4f8cc5684ed4a26bde2526abbc","ad26ae7869291b5346a7ea89f68cad46","ae7a7b9c78f5dff77808f309896b34f4","b5acac89497f871e0b9ddbc40b4c45c9","b8ca78688a513dc261a9e9d4d1074eab","bb15c9c43a2a6b9d55bea7f445434cb4","bb94da1d88359dd16d71f4cc35b8d27a","bbdc706d541a892d5ca3a9cd62695319","beeaa5c87a313a60167bdef923ed5c00","bf888649f87e1060a6df0c455e6a2207","bfca991eeb8e2fee381ede007de812fe","c3af6a1d114dfa9405e21d14eee8bd0a","c732a98708c088e77642a9a849c714bb","c91291af5851e7e5a8c94395c844a8d5","cd430fbf9b19589a6f5a1970154b5347","d5e0703d76097c1b1c2208d5cdf25150","d9eb3610bc4cc2917c831213324d21f7","df715840853bbd65be40ddde0ceca168","e2b2f1b1698d196bba7651c6895593cc","e3cb3dff055a7c5482c9d5a63d08ffe3","e3fbb179ac3ee06d7fe9ab7f5d92f14c","e4600407b2ae4d045d647e1e656d7e34","e7f1679dd6520812a5dad5fc5e3c37ef","e8c5722c677db3dd8a6b8c8f0f296a7e","ed2ea98dc55b845e5c1af7f723b1973b","efa917b7abbd5ccfb34c8cfcae9ec983","f35da48677b47996e32d83b19a8c79c7","f43dbab78c35815a7aa8ad994116d036","fde8c2ac5d81c35be115aeeec9ffb406"];
++const GENERATED_LAYOUTS = ["01153947b4e5f2e444e5103282b22ede","052656db128f2277290cb41739531a97","076fb8788b2008ea655e613b5cd11756","08a46f061c4560d2b9b6a00f01e4a793","0978ee83b070dc19e9c809e6194c4221","0d2ced6a73819331065e44cd01fcb146","11724f2e9ac4b2bb7281a7cd1249e02d","1550f3e3d239915f04d6f7510d17df23","1b4fe761d17aa9d237cbde6d24f8f6d5","1bddace9c95d8f1d8df8d778f51328df","1f7f918fbde8ff1d984126442d828684","20c2c6c753fa71e99e8ebf6300136438","2106d6e62d8241f9f97588d83db38925","21b17e513c99e0daf663deae83b56f1d","25cb871a8176087a8b349795d23dc92b","28a15290f8f30ad850f5af53f705d278","2c825d670bb79ed1409c8ff32400a1d3","2e071d7820e1f8edd7159edaa073a63b","32aa62ebe3665a4f0687f9091abd73f5","3754ec378a5d7c375f15030f3de02dfb","387549632f6d2223924b57a5b03e50dd","38936d0b6b668e476d77eeb20740fe04","3a51c56dcc6e06290bad956624af6270","3b29777f35c3bd5fcd613a642edb45d2","3d1cb8beb0dc057871a36752d0744d12","3d5de1f0a99347067cc2d2d7f8b9cdac","3db27757c0594f1fcfd5511bbc09ab9e","429b784f3d9119b2841ef545522923ee","4418877c9a6447b50d7d504f618ab375","45328305f98c61879c541da7eaf075c5","4660f8052767780205d38bd615924576","4b0c18c55d625b4c69389b8bd31eca06","4ce017990fd29f139ec1b0ce93535138","4dfb82ca79b0be2f2954ae5640f8ceae","4e0a7827626caa1693a7173888349d45","4e623189b1ab38eac2d51dafed3a530c","50129584483ad916c775af14cfb61af8","5056e92fd955349a8894108b903b2032","5282e75114fb9d904700d1d8b3d4f8b2","53c202f51c85e91115e4f64a78acfe39","5669006ef146877956ce9017469cfb6f","583a502bb97082adbd87bea21649a224","5abbd2f5e6cc3898c5185fc9f0b7ea7c","5b26674332a9415c1253ea97baa2b9c3","5bbdc75bcc70fa5f3ebbf4765282ccde","5dbd54b1d99292909c29fceff5701da9","5f5880e6ec87a21a5ce624d3ae957087","6516fb1e2c3fcb176b8d96c41a676c77","6576f4abe84d9b21857210730d718841","6615305e9e2178f2a3df3b040a5cd20b","69e4339dbb512026c3656785ae6db8ec","6bc6d71f9329f8d31411c0dfc1e0e35d","6c789b4a25f6a98d71931ea300856414","6d0cb776c8aa5600197e3a11d401a3b1","7303f424fa7c2c203ed9e526f5e80440","7e7a87e7712fca0e95ca053c04bdaa46","82b0fce7eac9c33263e531ba20b759ad","85b528cce3d1d67489c465ab5f4d0ee2","8807aee0d9e33bc5eeccf63f3ae58f0d","88e35f2497a9da15164a928473202088","8ab9df52f3d0998c9c94e3d85ff1121b","8f06dcaa14c22d409bb681b7a6410e28","8fca19e48df979034b7b600fa3a3acb2","90f4dfeef401d58b5ede6ae0f8e24542","93fef1d7268cbdc7b3ba8b73aba26d7d","94f97d07f389c7ee7b1523be38f445ba","975a172cfa554efc90973f0a6eeb62c5","a15b3d4b3dfe5f944ed9b9d18b84ef45","a4f18667ae6b759abe915572bf87d6e5","a4ff7da46e24c1b9aeb24fd45db3d90d","a50211b49c2c5a2bcf729b26add488e5","a94f3487db9af4d8c4e41e11e036171f","a9980a4f8cc5684ed4a26bde2526abbc","ad26ae7869291b5346a7ea89f68cad46","ae7a7b9c78f5dff77808f309896b34f4","b1026f6116dc19b1646d13725d02e2a6","b5acac89497f871e0b9ddbc40b4c45c9","b8ca78688a513dc261a9e9d4d1074eab","bb15c9c43a2a6b9d55bea7f445434cb4","bb94da1d88359dd16d71f4cc35b8d27a","bbdc706d541a892d5ca3a9cd62695319","beeaa5c87a313a60167bdef923ed5c00","bf888649f87e1060a6df0c455e6a2207","bfca991eeb8e2fee381ede007de812fe","c3af6a1d114dfa9405e21d14eee8bd0a","c732a98708c088e77642a9a849c714bb","c91291af5851e7e5a8c94395c844a8d5","cd430fbf9b19589a6f5a1970154b5347","ce9ff52f8114984506f73d7bb99642f9","d5e0703d76097c1b1c2208d5cdf25150","d9eb3610bc4cc2917c831213324d21f7","df715840853bbd65be40ddde0ceca168","e2b2f1b1698d196bba7651c6895593cc","e3cb3dff055a7c5482c9d5a63d08ffe3","e3fbb179ac3ee06d7fe9ab7f5d92f14c","e4600407b2ae4d045d647e1e656d7e34","e7f1679dd6520812a5dad5fc5e3c37ef","e8c5722c677db3dd8a6b8c8f0f296a7e","ed2ea98dc55b845e5c1af7f723b1973b","efa917b7abbd5ccfb34c8cfcae9ec983","f1873d81cd77a4512c594742242268e5","f35da48677b47996e32d83b19a8c79c7","f43dbab78c35815a7aa8ad994116d036","f8278e008166f64dddda807500768993","fa6d1582404e1431d428cd2865ee3a7b","fde8c2ac5d81c35be115aeeec9ffb406"];
 diff --git a/lib/review-feedback-contract.js b/lib/review-feedback-contract.js
-index b73ed65b..efccca5b 100644
+index b73ed65b..39bedabf 100644
 --- a/lib/review-feedback-contract.js
 +++ b/lib/review-feedback-contract.js
-@@ -24 +24 @@
+@@ -13,0 +14 @@
++const DEFAULT_REVIEW_ROUNDS = 10;
+@@ -24 +25 @@
 -  constructor(code) { super(`Review feedback rejected (${code}).`); this.code = code; }
 +  constructor(code, detail) { super(`Review feedback rejected (${code}).`); this.code = code; if (detail) this.detail = detail; }
-@@ -26 +26 @@
+@@ -26 +27 @@
 -function fail(code) { throw new ReviewFeedbackError(code); }
 +function fail(code, detail) { throw new ReviewFeedbackError(code, detail); }
+@@ -79 +80 @@
+-function validateStagedContract(v) {
++function validateStagedContract(v, legacyDefaults) {
+@@ -82,0 +84,2 @@
++  const unspecified = [];
++  let remaining = DEFAULT_REVIEW_ROUNDS;
+@@ -85 +87,0 @@
+-    if (!Object.hasOwn(s, 'maxRounds')) s.maxRounds = 3;
+@@ -87 +89,8 @@
+-    if (!Number.isInteger(s.maxRounds) || s.maxRounds < 1 || s.maxRounds > 10) fail('feedback_budget_invalid');
++    if (Object.hasOwn(s, 'maxRounds')) {
++      if (!Number.isInteger(s.maxRounds) || s.maxRounds < 1 || s.maxRounds > DEFAULT_REVIEW_ROUNDS) fail('feedback_budget_invalid');
++      remaining -= s.maxRounds;
++    } else unspecified.push(s);
++  }
++  for (const [i, stage] of unspecified.entries()) {
++    stage.maxRounds = legacyDefaults ? 3 : Math.max(1, Math.ceil(remaining / (unspecified.length - i)));
++    remaining -= stage.maxRounds;
+@@ -91 +100 @@
+-function validateContract(value) {
++function validateContract(value, { legacyDefaults = false } = {}) {
+@@ -93 +102 @@
+-  if (v && typeof v === 'object' && v.schema === CONTRACT_V2) return validateStagedContract(v);
++  if (v && typeof v === 'object' && v.schema === CONTRACT_V2) return validateStagedContract(v, legacyDefaults);
+@@ -95 +104 @@
+-  if (!Object.hasOwn(v, 'maxRounds')) v.maxRounds = 3;
++  if (!Object.hasOwn(v, 'maxRounds')) v.maxRounds = legacyDefaults ? 3 : DEFAULT_REVIEW_ROUNDS;
+@@ -283 +292 @@
+-module.exports = { CONTRACT, ROUND, CONTRACT_V2, ROUND_V2, START, SUBMIT, CONTINUED, RESUME, RESUME_SCHEMA,
++module.exports = { DEFAULT_REVIEW_ROUNDS, CONTRACT, ROUND, CONTRACT_V2, ROUND_V2, START, SUBMIT, CONTINUED, RESUME, RESUME_SCHEMA,
 diff --git a/lib/review-feedback-guidance.js b/lib/review-feedback-guidance.js
-index b1c4f091..825d5c8e 100644
+index b1c4f091..be495789 100644
 --- a/lib/review-feedback-guidance.js
 +++ b/lib/review-feedback-guidance.js
 @@ -3 +3,10 @@
@@ -4469,19 +4532,42 @@ index b1c4f091..825d5c8e 100644
 -function projectGuidance(lang) {
 -  return lang === 'en' ? '\n## Assigned reviewer protocol\n\n' + REVIEW_GUIDANCE + '\n'
 -    : '\n## 검수자가 지정된 작업\n\n작업 범위·검수자·통과 기준·최대 검수 횟수를 `leerness review-feedback start --stdin`으로 먼저 고정한다. 1차·최종 검수처럼 검수자가 여럿이면 순서 있는 단계(v2 스키마, 단계마다 검수자와 최대 검수 횟수)로 고정한다. NO GO를 낸 단계만 재검수하며, 그 단계가 통과해야 다음 단계가 시작된다. 일반 작업은 모든 단계를 합쳐 3회 이내(maxRounds 3, 또는 단계별 2회+1회)를 권장한다: 1차는 고정 범위 전체, 2차는 기존 지적 수정 여부와 관련 회귀, 3차는 남은 지적 최종 확인과 종료 판단. 횟수 소진은 GO가 아니며 미해결 차단 지적이 있으면 NEEDS_DECISION으로 멈춘다. 같은 검수 ID를 유지하고 횟수를 초기화하지 않는다.\n\n새 단계는 다른 단계나 구현이 쓰지 않은 새 세션(reviewerSession)에서 시작하며, 같은 모델이 여러 단계를 맡을 수 있고 같은 단계의 재검수는 그 단계의 세션을 이어 써도 된다. 같은 단계의 수정 재검수에는 `leerness review-feedback show REVIEW-ID --brief`, 검수한 리비전 이후의 diff와 실제 테스트 결과를 전달한다. 새 독립 최종 검수 단계에는 고정 요구사항·정확한 base/target 커밋·관련 코드·실제 테스트 결과만 먼저 제공하고, 이전 검수자의 판정·결함 목록과 개발자 자체 평가는 첫 독립 판정 기록 후 대조한다. 같은 검수 ID가 AI 대화 기억을 복원하지는 않는다. 재검수는 열린 지적 ID, 그 diff, diff가 닿는 호출 경로, 관련 회귀 테스트, 고정 기준과 실제 새 회귀·중대 위험만 보고, 수정이 새 모듈이나 데이터 경계에 닿은 부분만 넓힌다. 결과는 `submit --stdin`으로 기록한다.\n\nNO GO/FAIL이면 최종 답변 자체에 TO_GO(무엇을 수정하면 GO인지)를 수정 순서대로 번호를 매긴 체크리스트로 포함한다. 각 미해결 차단 지적의 ID·수정 대상 위치·근거와 재현 방법·통과 불가 이유·바뀌어야 할 동작을 적고, 확인 가능한 통과 조건마다 확인 방법과 GO에 필요한 검증 근거를 적는다. 이어서 아직 남은 고정 기준·회귀 확인, 남은 검수 횟수, 다음 순서를 적는다. 판정만 쓰거나 별도 로그를 보라는 말로 끝내지 않으며, CLI 없이 검수할 때도 같은 형식을 쓴다. 사용자에게는 PASS를 GO로, FAIL/NEEDS_DECISION을 NO GO로 표시하고 그 종류(수정 필요·검증 대기·판단 대기·도구 오류)를 밝힌다. 도구 오류는 그 자체로 제품 결함이 아니며, 실행하지 않은 검사는 미검증이다. 구조화된 verdict 값은 유지한다. 각 지적에 문제·근거·통과 불가 이유·필수 개선 결과·확인 가능한 통과 조건을 포함한다. 구현 힌트는 선택이며 방법은 작업자가 결정한다. 보안·데이터 손실·API 규격·표준에 따른 필수 제약은 이유와 근거를 따로 적는다.\n\n취향·UX 제안·범위 밖 요구는 후속 참고 의견으로 남기고, 이전/이후 근거가 있는 새 회귀만 차단 사유로 추가한다. MED라는 이유만으로 비차단 처리하지 않고, 드물다는 이유로 실제 데이터 손상 위험을 낮추지 않는다. 2차 이후 발견한 기존 결함이 고정 기준을 위반하면 심각도를 부풀리거나 회귀로 표시하지 말고 medium 이상의 risk-escalation으로 기록해 판단을 요청한다. 재현된 결함에는 회귀 테스트를 쓰고, 충분한 기존 테스트는 재사용하며, 변이 검사는 탐지력이 불확실한 중요 경계에만 쓰고, 같은 소스를 여러 검사 래퍼로 반복하지 않으며, 실패하는 보안·데이터 무결성 테스트를 느슨하게 만들지 않는다. `NEEDS_DECISION`이면 미해결 문제와 근거·필요한 결정을 보고하고 자동 수정을 멈춘다. 명시적인 사용자 결정과 show --json의 result.nextResumeTemplate이 있으면 leerness review-feedback resume --file <결정 파일>로 재검수 1회 결정을 기록하고 NO GO와 남은 횟수를 유지한다. 설치 도구에 resume이 없거나 도구·원장 오류가 나면 검수 도구의 차단 사유로 보고하고 독립적인 제품 작업을 계속한다. 명시적인 요청 없이 검증 도구 수정, 검수 ID 초기화, 공유 설치 갱신이나 다른 프로젝트 프로세스 중지로 작업 범위를 바꾸지 않는다. 횟수 소진을 통과로 바꾸지 않는다. 실제 신원·증거 확인과 기존 승인 절차는 별도다.\n';
-+const REVIEW_PROTOCOL = `Review protocol: before reviewing a worker's result, freeze taskId, reviewId, named reviewer provider/model, scope, criteria and maxRounds with leerness review-feedback start --stdin. For a first and a final reviewer, freeze ordered stages instead (v2 schema, each with its reviewer and maxRounds): only the stage that gave NO GO re-reviews, and the next stage starts after it passes. Keep ordinary work within 3 rounds across all stages (maxRounds 3, or stages of 2 and 1): the full frozen scope first, then the reported findings and their regressions, then a final check. A spent budget is never GO; open blockers stop as NEEDS_DECISION. Reuse the reviewId; never restart to reset its budget. A new stage starts in a new session (reviewerSession), never one used by another stage or by the implementation; the same model may serve several stages, and a re-review in the same stage may continue its session. For a repair re-review, give the reviewer leerness review-feedback show REVIEW-ID --brief, the diff since the reviewed revision and actual test results. For a fresh independent final-stage reviewer, supply frozen requirements, exact target/base commit, affected code and actual test evidence without prior reviewer verdicts, findings, or developer self-assessment until the cold inspection is recorded; reconcile after that. A review ID restores no conversation memory. A re-review checks only the open finding IDs, that diff, the call paths it affects, related regression tests, the fixed criteria and real new regressions or serious risks, widening only where the change reached a new module or data boundary. Submit with leerness review-feedback submit --stdin. The final response itself must include a TO_GO section for every NO GO/FAIL, written as a numbered checklist in fix order: for each open blocking issue its ID, affected file/component/behavior, evidence and how to reproduce it, why it fails, the required changed behavior, and each observable acceptance check with how it will be verified and the evidence needed for GO; then the fixed criteria and regression check still pending, the reviews left and the next steps. Never return only a verdict or point to a separate log; apply the same format when reviewing without the CLI. Say GO for PASS; for FAIL or NEEDS_DECISION say NO GO and which kind: fix required, verification pending, decision pending, or tool error, which is never a product defect by itself. Structured verdicts remain PASS, FAIL and NEEDS_DECISION; an unrun check is unverified. Each finding requires ISSUE, EVIDENCE, WHY_IT_FAILS, REQUIRED_OUTCOME and ACCEPTANCE_CRITERIA; IMPLEMENTATION_HINT is optional and the worker chooses the implementation. A mandatory constraint needs a security, data-loss, API-contract or standards reason and evidence. Preferences, UX ideas and out-of-scope requests are non-blocking follow-ups; only a new regression with before/after evidence adds a blocker. Judge blocking by the service's documented normal range: a display-only defect that needs an unrealistic value (a billion-item consumer order) is a low non-blocking note; money, stock, data, overflow, input, auth and crash risks still block. If the range is undocumented, ask the user one question per decision and use NEEDS_DECISION. Severity alone does not make a medium finding non-blocking, and rarity does not lower real data-loss risk. A pre-existing defect found after the first round that breaks a frozen criterion is a medium-or-higher risk-escalation that stops for a decision, not an inflated severity or a regression. PASS requires every fixed criterion and the regression check to pass with no open blocker. Add a regression test for a reproduced defect, reuse adequate tests, keep mutation testing for critical boundaries of uncertain detection, run one source through one check, and never weaken a failing security or data-integrity test. On NEEDS_DECISION stop automatic revisions and report open issues, evidence and required decisions. With an explicit owner instruction and an eligible result.nextResumeTemplate from show --json, record one re-review decision with leerness review-feedback resume --file <decision file>; NO GO and the remaining budget stay. If the installed tool lacks resume or reports a tool/ledger error, report a tooling blocker and continue independent product work. Do not switch to modifying the verification tool, reset review IDs, update shared installations or stop other projects unless explicitly requested; never auto-pass or silently change the baseline. References and identity declarations are not verified execution or release approval.`;
++const REVIEW_PROTOCOL = `Review protocol: before reviewing a worker's result, freeze taskId, reviewId, named reviewer provider/model, scope, criteria and maxRounds with leerness review-feedback start --stdin. For a first and a final reviewer, freeze ordered stages instead (v2 schema, each with its reviewer and maxRounds): only the stage that gave NO GO re-reviews, and the next stage starts after it passes. Use a total budget of 10 rounds for ordinary work. In the first round inspect every frozen criterion, changed entry point and affected data path and report all evidenced blockers together. Reuse the current stage session to verify fixes and affected regressions. Finish as soon as the criteria pass. A spent budget is never GO; open blockers stop as NEEDS_DECISION. Reuse the reviewId; never restart to reset its budget. A new stage starts in a new session (reviewerSession), never one used by another stage or by the implementation; the same model may serve several stages, and a re-review in the same stage may continue its session. For a repair re-review, give the reviewer leerness review-feedback show REVIEW-ID --brief, the diff since the reviewed revision and actual test results. For a fresh independent final-stage reviewer, supply frozen requirements, exact target/base commit, affected code and actual test evidence without prior reviewer verdicts, findings, or developer self-assessment until the cold inspection is recorded; reconcile after that. A review ID restores no conversation memory. A re-review checks only the open finding IDs, that diff, the call paths it affects, related regression tests, the fixed criteria and real new regressions or serious risks, widening only where the change reached a new module or data boundary. Submit with leerness review-feedback submit --stdin. The final response itself must include a TO_GO section for every NO GO/FAIL, written as a numbered checklist in fix order: for each open blocking issue its ID, affected file/component/behavior, evidence and how to reproduce it, why it fails, the required changed behavior, and each observable acceptance check with how it will be verified and the evidence needed for GO; then the fixed criteria and regression check still pending, the reviews left and the next steps. Never return only a verdict or point to a separate log; apply the same format when reviewing without the CLI. Say GO for PASS; for FAIL or NEEDS_DECISION say NO GO and which kind: fix required, verification pending, decision pending, or tool error, which is never a product defect by itself. Structured verdicts remain PASS, FAIL and NEEDS_DECISION; an unrun check is unverified. Each finding requires ISSUE, EVIDENCE, WHY_IT_FAILS, REQUIRED_OUTCOME and ACCEPTANCE_CRITERIA; IMPLEMENTATION_HINT is optional and the worker chooses the implementation. A mandatory constraint needs a security, data-loss, API-contract or standards reason and evidence. Preferences, UX ideas and out-of-scope requests are non-blocking follow-ups; only a new regression with before/after evidence adds a blocker. Judge blocking by the service's documented normal range: a display-only defect that needs an unrealistic value (a billion-item consumer order) is a low non-blocking note; money, stock, data, overflow, input, auth and crash risks still block. If the range is undocumented, ask the user one question per decision and use NEEDS_DECISION. Severity alone does not make a medium finding non-blocking, and rarity does not lower real data-loss risk. A pre-existing defect found after the first round that breaks a frozen criterion is a medium-or-higher risk-escalation that stops for a decision, not an inflated severity or a regression. PASS requires every fixed criterion and the regression check to pass with no open blocker. Add a regression test for a reproduced defect, reuse adequate tests, keep mutation testing for critical boundaries of uncertain detection, run one source through one check, and never weaken a failing security or data-integrity test. On NEEDS_DECISION stop automatic revisions and report open issues, evidence and required decisions. With an explicit owner instruction and an eligible result.nextResumeTemplate from show --json, record one re-review decision with leerness review-feedback resume --file <decision file>; NO GO and the remaining budget stay. If the installed tool lacks resume or reports a tool/ledger error, report a tooling blocker and continue independent product work. Do not switch to modifying the verification tool, reset review IDs, update shared installations or stop other projects unless explicitly requested; never auto-pass or silently change the baseline. References and identity declarations are not verified execution or release approval.`;
 +const REVIEW_GUIDANCE = REVIEW_PROTOCOL + ' ' + REVIEW_COVERAGE_INSTRUCTIONS.join(' ');
 +
 +function projectGuidance(lang, { coverage = true } = {}) {
 +  return lang === 'en' ? '\n## Assigned reviewer protocol\n\n' + (coverage ? REVIEW_GUIDANCE : REVIEW_PROTOCOL) + '\n'
-+    : '\n## 검수자가 지정된 작업\n\n작업 범위·검수자·통과 기준·최대 검수 횟수를 `leerness review-feedback start --stdin`으로 먼저 고정한다. 1차·최종 검수처럼 검수자가 여럿이면 순서 있는 단계(v2 스키마, 단계마다 검수자와 최대 검수 횟수)로 고정한다. NO GO를 낸 단계만 재검수하며, 그 단계가 통과해야 다음 단계가 시작된다. 일반 작업은 모든 단계를 합쳐 3회 이내(maxRounds 3, 또는 단계별 2회+1회)를 권장한다: 1차는 고정 범위 전체, 2차는 기존 지적 수정 여부와 관련 회귀, 3차는 남은 지적 최종 확인과 종료 판단. 횟수 소진은 GO가 아니며 미해결 차단 지적이 있으면 NEEDS_DECISION으로 멈춘다. 같은 검수 ID를 유지하고 횟수를 초기화하지 않는다.\n\n새 단계는 다른 단계나 구현이 쓰지 않은 새 세션(reviewerSession)에서 시작하며, 같은 모델이 여러 단계를 맡을 수 있고 같은 단계의 재검수는 그 단계의 세션을 이어 써도 된다. 같은 단계의 수정 재검수에는 `leerness review-feedback show REVIEW-ID --brief`, 검수한 리비전 이후의 diff와 실제 테스트 결과를 전달한다. 새 독립 최종 검수 단계에는 고정 요구사항·정확한 base/target 커밋·관련 코드·실제 테스트 결과만 먼저 제공하고, 이전 검수자의 판정·결함 목록과 개발자 자체 평가는 첫 독립 판정 기록 후 대조한다. 같은 검수 ID가 AI 대화 기억을 복원하지는 않는다. 재검수는 열린 지적 ID, 그 diff, diff가 닿는 호출 경로, 관련 회귀 테스트, 고정 기준과 실제 새 회귀·중대 위험만 보고, 수정이 새 모듈이나 데이터 경계에 닿은 부분만 넓힌다. 결과는 `submit --stdin`으로 기록한다.\n\nNO GO/FAIL이면 최종 답변 자체에 TO_GO(무엇을 수정하면 GO인지)를 수정 순서대로 번호를 매긴 체크리스트로 포함한다. 각 미해결 차단 지적의 ID·수정 대상 위치·근거와 재현 방법·통과 불가 이유·바뀌어야 할 동작을 적고, 확인 가능한 통과 조건마다 확인 방법과 GO에 필요한 검증 근거를 적는다. 이어서 아직 남은 고정 기준·회귀 확인, 남은 검수 횟수, 다음 순서를 적는다. 판정만 쓰거나 별도 로그를 보라는 말로 끝내지 않으며, CLI 없이 검수할 때도 같은 형식을 쓴다. 사용자에게는 PASS를 GO로, FAIL/NEEDS_DECISION을 NO GO로 표시하고 그 종류(수정 필요·검증 대기·판단 대기·도구 오류)를 밝힌다. 도구 오류는 그 자체로 제품 결함이 아니며, 실행하지 않은 검사는 미검증이다. 구조화된 verdict 값은 유지한다. 각 지적에 문제·근거·통과 불가 이유·필수 개선 결과·확인 가능한 통과 조건을 포함한다. 구현 힌트는 선택이며 방법은 작업자가 결정한다. 보안·데이터 손실·API 규격·표준에 따른 필수 제약은 이유와 근거를 따로 적는다.\n\n취향·UX 제안·범위 밖 요구는 후속 참고 의견으로 남기고, 이전/이후 근거가 있는 새 회귀만 차단 사유로 추가한다. 차단 여부는 문서에 정한 서비스의 정상 범위로 판단한다. 소비자 주문 10억 개처럼 비현실적인 값에서만 생기는 표시 결함은 low 비차단 의견이고, 금액·재고·데이터·오버플로·입력·권한·장애 위험은 그대로 차단한다. 범위가 문서에 없으면 결정마다 질문 하나로 사용자에게 묻고 NEEDS_DECISION으로 둔다. MED라는 이유만으로 비차단 처리하지 않고, 드물다는 이유로 실제 데이터 손상 위험을 낮추지 않는다. 2차 이후 발견한 기존 결함이 고정 기준을 위반하면 심각도를 부풀리거나 회귀로 표시하지 말고 medium 이상의 risk-escalation으로 기록해 판단을 요청한다. 재현된 결함에는 회귀 테스트를 쓰고, 충분한 기존 테스트는 재사용하며, 변이 검사는 탐지력이 불확실한 중요 경계에만 쓰고, 같은 소스를 여러 검사 래퍼로 반복하지 않으며, 실패하는 보안·데이터 무결성 테스트를 느슨하게 만들지 않는다. `NEEDS_DECISION`이면 미해결 문제와 근거·필요한 결정을 보고하고 자동 수정을 멈춘다. 명시적인 사용자 결정과 show --json의 result.nextResumeTemplate이 있으면 leerness review-feedback resume --file <결정 파일>로 재검수 1회 결정을 기록하고 NO GO와 남은 횟수를 유지한다. 설치 도구에 resume이 없거나 도구·원장 오류가 나면 검수 도구의 차단 사유로 보고하고 독립적인 제품 작업을 계속한다. 명시적인 요청 없이 검증 도구 수정, 검수 ID 초기화, 공유 설치 갱신이나 다른 프로젝트 프로세스 중지로 작업 범위를 바꾸지 않는다. 횟수 소진을 통과로 바꾸지 않는다. 실제 신원·증거 확인과 기존 승인 절차는 별도다.\n' + (coverage ? '\n## 범위 내 일괄 점검\n\n' + REVIEW_COVERAGE_KO + '\n' : '');
++    : '\n## 검수자가 지정된 작업\n\n작업 범위·검수자·통과 기준·최대 검수 횟수를 `leerness review-feedback start --stdin`으로 먼저 고정한다. 1차·최종 검수처럼 검수자가 여럿이면 순서 있는 단계(v2 스키마, 단계마다 검수자와 최대 검수 횟수)로 고정한다. NO GO를 낸 단계만 재검수하며, 그 단계가 통과해야 다음 단계가 시작된다. 일반 작업의 검수 예산은 모든 단계를 합쳐 10회다. 첫 검수에서 고정 기준 전체와 변경된 진입점·데이터 경로를 점검하고 근거가 있는 차단 지적을 한꺼번에 기록한다. 같은 단계의 세션을 이어서 수정 사항과 영향받는 회귀를 확인하고 통과 기준을 충족하면 즉시 종료한다. 횟수 소진은 GO가 아니며 미해결 차단 지적이 있으면 NEEDS_DECISION으로 멈춘다. 같은 검수 ID를 유지하고 횟수를 초기화하지 않는다.\n\n새 단계는 다른 단계나 구현이 쓰지 않은 새 세션(reviewerSession)에서 시작하며, 같은 모델이 여러 단계를 맡을 수 있고 같은 단계의 재검수는 그 단계의 세션을 이어 써도 된다. 같은 단계의 수정 재검수에는 `leerness review-feedback show REVIEW-ID --brief`, 검수한 리비전 이후의 diff와 실제 테스트 결과를 전달한다. 새 독립 최종 검수 단계에는 고정 요구사항·정확한 base/target 커밋·관련 코드·실제 테스트 결과만 먼저 제공하고, 이전 검수자의 판정·결함 목록과 개발자 자체 평가는 첫 독립 판정 기록 후 대조한다. 같은 검수 ID가 AI 대화 기억을 복원하지는 않는다. 재검수는 열린 지적 ID, 그 diff, diff가 닿는 호출 경로, 관련 회귀 테스트, 고정 기준과 실제 새 회귀·중대 위험만 보고, 수정이 새 모듈이나 데이터 경계에 닿은 부분만 넓힌다. 결과는 `submit --stdin`으로 기록한다.\n\nNO GO/FAIL이면 최종 답변 자체에 TO_GO(무엇을 수정하면 GO인지)를 수정 순서대로 번호를 매긴 체크리스트로 포함한다. 각 미해결 차단 지적의 ID·수정 대상 위치·근거와 재현 방법·통과 불가 이유·바뀌어야 할 동작을 적고, 확인 가능한 통과 조건마다 확인 방법과 GO에 필요한 검증 근거를 적는다. 이어서 아직 남은 고정 기준·회귀 확인, 남은 검수 횟수, 다음 순서를 적는다. 판정만 쓰거나 별도 로그를 보라는 말로 끝내지 않으며, CLI 없이 검수할 때도 같은 형식을 쓴다. 사용자에게는 PASS를 GO로, FAIL/NEEDS_DECISION을 NO GO로 표시하고 그 종류(수정 필요·검증 대기·판단 대기·도구 오류)를 밝힌다. 도구 오류는 그 자체로 제품 결함이 아니며, 실행하지 않은 검사는 미검증이다. 구조화된 verdict 값은 유지한다. 각 지적에 문제·근거·통과 불가 이유·필수 개선 결과·확인 가능한 통과 조건을 포함한다. 구현 힌트는 선택이며 방법은 작업자가 결정한다. 보안·데이터 손실·API 규격·표준에 따른 필수 제약은 이유와 근거를 따로 적는다.\n\n취향·UX 제안·범위 밖 요구는 후속 참고 의견으로 남기고, 이전/이후 근거가 있는 새 회귀만 차단 사유로 추가한다. 차단 여부는 문서에 정한 서비스의 정상 범위로 판단한다. 소비자 주문 10억 개처럼 비현실적인 값에서만 생기는 표시 결함은 low 비차단 의견이고, 금액·재고·데이터·오버플로·입력·권한·장애 위험은 그대로 차단한다. 범위가 문서에 없으면 결정마다 질문 하나로 사용자에게 묻고 NEEDS_DECISION으로 둔다. MED라는 이유만으로 비차단 처리하지 않고, 드물다는 이유로 실제 데이터 손상 위험을 낮추지 않는다. 2차 이후 발견한 기존 결함이 고정 기준을 위반하면 심각도를 부풀리거나 회귀로 표시하지 말고 medium 이상의 risk-escalation으로 기록해 판단을 요청한다. 재현된 결함에는 회귀 테스트를 쓰고, 충분한 기존 테스트는 재사용하며, 변이 검사는 탐지력이 불확실한 중요 경계에만 쓰고, 같은 소스를 여러 검사 래퍼로 반복하지 않으며, 실패하는 보안·데이터 무결성 테스트를 느슨하게 만들지 않는다. `NEEDS_DECISION`이면 미해결 문제와 근거·필요한 결정을 보고하고 자동 수정을 멈춘다. 명시적인 사용자 결정과 show --json의 result.nextResumeTemplate이 있으면 leerness review-feedback resume --file <결정 파일>로 재검수 1회 결정을 기록하고 NO GO와 남은 횟수를 유지한다. 설치 도구에 resume이 없거나 도구·원장 오류가 나면 검수 도구의 차단 사유로 보고하고 독립적인 제품 작업을 계속한다. 명시적인 요청 없이 검증 도구 수정, 검수 ID 초기화, 공유 설치 갱신이나 다른 프로젝트 프로세스 중지로 작업 범위를 바꾸지 않는다. 횟수 소진을 통과로 바꾸지 않는다. 실제 신원·증거 확인과 기존 승인 절차는 별도다.\n' + (coverage ? '\n## 범위 내 일괄 점검\n\n' + REVIEW_COVERAGE_KO + '\n' : '');
 @@ -19 +31 @@
 -module.exports = { REVIEW_GUIDANCE, projectGuidance, pointer };
 +module.exports = { REVIEW_GUIDANCE, REVIEW_COVERAGE_INSTRUCTIONS, projectGuidance, pointer };
+diff --git a/lib/review-feedback-report.js b/lib/review-feedback-report.js
+index 992e2e4d..a5af761c 100644
+--- a/lib/review-feedback-report.js
++++ b/lib/review-feedback-report.js
+@@ -81 +80,0 @@
+-const RECOMMENDED_REVIEW_ROUNDS = 3;
+@@ -86 +85 @@
+-  return { roundsUsed: used, maxRounds, remaining: Math.max(0, remaining), recommendedMax: RECOMMENDED_REVIEW_ROUNDS };
++  return { roundsUsed: used, maxRounds, remaining: Math.max(0, remaining), recommendedMax: C.DEFAULT_REVIEW_ROUNDS };
+@@ -125 +124 @@
+-      remainingRounds: maxRounds - used, newSession: staged, reuseAttempt: !changesNeeded && !state.resumePermit && state.rounds.length > 0,
++      remainingRounds: maxRounds - used, newSession: staged && used === 0, reuseAttempt: !changesNeeded && !state.resumePermit && state.rounds.length > 0,
+@@ -188 +187 @@
+-      + `${!s.newSession ? '' : s.continueSession ? `, continuing this stage's session ${s.continueSession} where available (otherwise a session not used by another stage or the implementation)` : ', in a session not used by another stage or the implementation'}`
++      + `${s.continueSession ? `, continuing this stage's session ${s.continueSession} where available (otherwise a session not used by another stage or the implementation)` : s.newSession ? ', in a session not used by another stage or the implementation' : ''}`
+@@ -233 +232 @@
+-      + `${!s.newSession ? '' : s.continueSession ? `, 가능하면 이 단계가 쓴 세션 ${s.continueSession}을 이어서(아니면 다른 단계·구현이 쓰지 않은 세션에서)` : ', 다른 단계·구현이 쓰지 않은 세션에서'}`
++      + `${s.continueSession ? `, 가능하면 이 단계가 쓴 세션 ${s.continueSession}을 이어서(아니면 다른 단계·구현이 쓰지 않은 세션에서)` : s.newSession ? ', 다른 단계·구현이 쓰지 않은 세션에서' : ''}`
 diff --git a/lib/review-feedback-transport.js b/lib/review-feedback-transport.js
-index 9518b04e..0fcb540a 100644
+index 9518b04e..9bb92b00 100644
 --- a/lib/review-feedback-transport.js
 +++ b/lib/review-feedback-transport.js
+@@ -12,2 +12,2 @@
+-  + 'Start freezes a named reviewer, scope, criteria and maxRounds (1..10; suggested 3), or with the v2 schema an\n'
+-  + 'ordered list of stages (for example a first and a final reviewer), each with its reviewer and maxRounds.\n'
++  + 'Start freezes a named reviewer, scope, criteria and maxRounds (1..10, default 10), or with the v2 schema an\n'
++  + 'ordered list of stages (for example a first and a final reviewer), sharing 10 rounds by default across their reviewers.\n'
 @@ -48,2 +48,4 @@
 -  if (argv.length === 1 && ['--help', '-h'].includes(argv[0])) { output.write(USAGE); return 0; }
 -  let result, code = 2;
@@ -4515,9 +4601,12 @@ index 9518b04e..0fcb540a 100644
 +      : error instanceof C.ReviewFeedbackError && typeof error.detail === 'string' ? { detail: error.detail } : {};
 +    result = JSON.stringify({ ok: false, error: { code: error.code || 'feedback_failed', kind: errorKind(error), ...help }, approvalGranted: false }) + '\n';
 diff --git a/lib/review-feedback.js b/lib/review-feedback.js
-index bb104353..5bf50e09 100644
+index bb104353..315ee522 100644
 --- a/lib/review-feedback.js
 +++ b/lib/review-feedback.js
+@@ -24 +24 @@
+-      const c = C.validateContract(e.feedbackContract);
++      const c = C.validateContract(e.feedbackContract, { legacyDefaults: true });
 @@ -50,2 +50,5 @@
 -  if (candidates.length !== 1 || candidates[0].taskId !== contract.taskId) C.fail('feedback_implementation_missing');
 -  if (candidates[0].executed !== true) C.fail('feedback_implementation_not_executed');
@@ -4526,6 +4615,12 @@ index bb104353..5bf50e09 100644
 +  if (candidates.length > 1) C.fail('feedback_implementation_missing', `${candidates.length} execution events share attempt ${attempt}; submit the round with an implementationAttemptId that names one attempt`);
 +  if (candidates[0].taskId !== contract.taskId) C.fail('feedback_implementation_missing', `attempt ${attempt} was recorded for task ${String(candidates[0].taskId).slice(0, 200)}, but this review is for task ${task}`);
 +  if (candidates[0].executed !== true) C.fail('feedback_implementation_not_executed', `attempt ${attempt} is in the ledger without executed=true; record the finished attempt with leerness agents record completed (or failed)`);
+@@ -122 +125,4 @@
+-      if (C.stable(existing.contract) !== C.stable(c)) C.fail('feedback_contract_changed');
++      const frozen = C.stable(existing.contract);
++      if (frozen !== C.stable(c) && frozen !== C.stable(C.validateContract(input, { legacyDefaults: true }))) {
++        C.fail('feedback_contract_changed');
++      }
 diff --git a/lib/review-request.js b/lib/review-request.js
 index 2d96d82f..af103ad9 100644
 --- a/lib/review-request.js
@@ -4620,11 +4715,14 @@ index 47e7a267..4c731cd2 100644
 -    : input.source === 'legacy' ? 'legacy' : prepared.snapshot && !prepared.snapshot.exists ? 'rebuildable' : 'consistent' };
 +    : prepared.snapshot && !prepared.snapshot.exists ? 'rebuildable' : 'consistent' };
 diff --git a/lib/task-review-assessment.js b/lib/task-review-assessment.js
-index 7ed49e46..66bdd482 100644
+index 7ed49e46..68c1a16c 100644
 --- a/lib/task-review-assessment.js
 +++ b/lib/task-review-assessment.js
 @@ -3,0 +4 @@
 +const { REVIEW_COVERAGE_INSTRUCTIONS } = require('./review-feedback-guidance');
+@@ -10 +11 @@
+-const LIMITS = Object.freeze({ elapsedHours: 48, checkpoints: 3, noProgress: 2, repeatFailures: 2, reviewRounds: 3, executedValidationMs: 1800000 });
++const LIMITS = Object.freeze({ elapsedHours: 48, checkpoints: 3, noProgress: 2, repeatFailures: 2, reviewRounds: 10, executedValidationMs: 1800000 });
 @@ -194 +195 @@
 -    instructions: ['Read the pinned code and requirements, including directly affected call paths.', 'Identify reproducible defects and separate observed failures from hypotheses.', 'Do not modify product code or test acceptance criteria.', 'Report PASS, FAIL or INCONCLUSIVE with evidence; no verdict grants release approval.'],
 +    instructions: ['Read the pinned code and requirements, including directly affected call paths.', 'Identify reproducible defects and separate observed failures from hypotheses.', 'Do not modify product code or test acceptance criteria.', 'Report PASS, FAIL or INCONCLUSIVE with evidence; no verdict grants release approval.', ...REVIEW_COVERAGE_INSTRUCTIONS],
@@ -4900,6 +4998,38 @@ index c896169d..c756cc46 100644
 -    assert.ok(path.basename(resolved).startsWith('leerness-context-reading-'));removeTree(resolved, { recursive: true, force: true });
 -  }
 +  require('./temp-cleanup').runIsolatedWorker(__filename, 'leerness-context-reading-', 'CONTEXT_READING_ROOT', 3600000);
+diff --git a/scripts/derived-input-publication-probe.js b/scripts/derived-input-publication-probe.js
+index e7ecb3d9..a27ab150 100644
+--- a/scripts/derived-input-publication-probe.js
++++ b/scripts/derived-input-publication-probe.js
+@@ -32 +32,11 @@
+-test('graph normal HTML and injection neutralization remain valid',()=>{const f=fixture(),out=path.join(f.root,'leerness.html');f.put('decisions.json',JSON.stringify([{id:'D-0001',decision:'Owner </script> source'}]));const r=graph.graphHtmlCmd(f.root,deps(),out),text=fs.readFileSync(out,'utf8');assert(r.ok);assert(text.includes('T-0001'));assert.equal((text.match(/<\/script>/g)||[]).length,1);const data=JSON.parse(text.match(/var DATA = (\{[^]*?\});/)[1]);assert.equal(data.nodes.find(n=>n.id==='D-0001').label,'Owner </script> source');});
++test('graph normal HTML and injection neutralization remain valid', () => {
++  const f = fixture(), out = path.join(f.root, 'leerness.html');
++  const decision = 'Owner </script> source';
++  f.put('decisions.md', decision);
++  assert.ok(graph.graphHtmlCmd(f.root, deps(), out).ok);
++  const text = fs.readFileSync(out, 'utf8');
++  assert.equal((text.match(/<\/script>/g) || []).length, 1);
++  const data = JSON.parse(/^var DATA = (.+);$/m.exec(text)[1]);
++  assert.ok(data.roadmap.tasks.some(t => t.id === 'T-0001'));
++  assert.equal(data.docs.files.find(f => f.key === 'decisions').text, decision);
++});
+@@ -37 +47,13 @@
+-function sessionWrite(fn){const old={};for(const key of ['LEERNESS_INTERNAL','LEERNESS_SESSION_ID','LEERNESS_NO_LOCK_WARN'])old[key]=process.env[key];delete process.env.LEERNESS_INTERNAL;process.env.LEERNESS_SESSION_ID='session-0001';process.env.LEERNESS_NO_LOCK_WARN='1';try{return fn();}finally{for(const[key,value]of Object.entries(old))if(value===undefined)delete process.env[key];else process.env[key]=value;}}
++function sessionWrite(fn) {
++  const keys = ['LEERNESS_INTERNAL', 'LEERNESS_SESSION_ID', 'LEERNESS_NO_LOCK_WARN', 'CI', 'GITHUB_ACTIONS'];
++  const prior = new Map(keys.map(key => [key, process.env[key]]));
++  for (const key of keys) delete process.env[key];
++  process.env.LEERNESS_SESSION_ID = 'session-0001';
++  process.env.LEERNESS_NO_LOCK_WARN = '1';
++  try { return fn(); } finally {
++    for (const [key, value] of prior) {
++      if (value === undefined) delete process.env[key];
++      else process.env[key] = value;
++    }
++  }
++}
 diff --git a/scripts/e2e-command-surface.js b/scripts/e2e-command-surface.js
 index 2f3db9e1..b6547e06 100644
 --- a/scripts/e2e-command-surface.js
@@ -5401,6 +5531,22 @@ index 235f467b..1e31cd4b 100644
 +  check('init, migrate and update keep owner .env/.env.example byte-identical without printing values',
 +    envFailures.length === 0 && envChanged.length === 0 && envLeaks.length === 0,
 +    `failed=${envFailures.map(({ args, result }) => `${args[0]}:${result.status} ${(result.stderr || result.stdout).slice(-300)}`).join(' | ')} changed=${envChanged.join(',')} leaked=${envLeaks.map(({ args }) => args[0]).join(',')}`);
+diff --git a/scripts/lean-readonly-probe.js b/scripts/lean-readonly-probe.js
+index 9aff019e..08fbd31d 100644
+--- a/scripts/lean-readonly-probe.js
++++ b/scripts/lean-readonly-probe.js
+@@ -238 +238 @@
+-const LOOP_STOP = /^LOOP STOP L-0001 "stopped subject" 3\/3 rounds - owner decision required: leerness loop status L-0001$/m;
++const LOOP_STOP = /^LOOP STOP L-0001 "stopped subject" 3\/10 rounds - owner decision required: leerness loop status L-0001$/m;
+@@ -242 +242 @@
+-  assert.deepEqual(['a', 'b', 'c'].map(spot => run(['loop', 'round', 'L-0001', '--spot', spot]).status), [0, 0, 3]);
++  assert.deepEqual(['a', 'a', 'a'].map(spot => run(['loop', 'round', 'L-0001', '--spot', spot]).status), [0, 0, 3]);
+@@ -262 +262 @@
+-      stopped: [{ id: 'L-0001', subject: 'stopped subject', rounds: 3, cap: 3, reason: 'cap_reached' }] }));
++      stopped: [{ id: 'L-0001', subject: 'stopped subject', rounds: 3, cap: 10, reason: 'same_spot' }] }));
+@@ -288 +288 @@
+-  const stopped = [{ id: 'L-0001', subject: 'stopped subject', rounds: 3, cap: 3, reason: 'cap_reached' }];
++  const stopped = [{ id: 'L-0001', subject: 'stopped subject', rounds: 3, cap: 10, reason: 'same_spot' }];
 diff --git a/scripts/legacy-adapter-publication-probe.js b/scripts/legacy-adapter-publication-probe.js
 index 50e85596..0df3307c 100644
 --- a/scripts/legacy-adapter-publication-probe.js
@@ -5412,12 +5558,66 @@ index 50e85596..0df3307c 100644
 -test('handoff diagnostic does not swallow unavailable API adapter', () => { const f = fixture(); gap(f.file('api-skills/service.md'), skill('Owner')); const before = bytes(f.root), result = run(f, ['handoff', '--detailed', '--json']); assert.equal(result.status, 1, result.stdout + result.stderr); assert.equal(JSON.parse(result.stdout).ok, false); assert.deepEqual(bytes(f.root), before); });
 +test('handoff diagnostic does not swallow unavailable API adapter', () => { const f = fixture(); gap(f.file('api-skills/service.md'), skill('Owner')); const before = bytes(f.root), result = run(f, ['handoff', '--inspect', '--json']); assert.equal(result.status, 1, result.stdout + result.stderr); const data = JSON.parse(result.stdout); assert.equal(data.ok, false); assert.match(data.error, /api-skills|Stored artifact publication/i, result.stdout); assert.deepEqual(bytes(f.root), before); });
 diff --git a/scripts/loop-guard-probe.js b/scripts/loop-guard-probe.js
-index ba2bc4df..d9e86094 100644
+index ba2bc4df..9afee44e 100644
 --- a/scripts/loop-guard-probe.js
 +++ b/scripts/loop-guard-probe.js
 @@ -5 +5 @@
 -// Loop guard (.leerness/loop-guard-design-20261025.md section 7.1): rows LG1-LG7, LG9, LG10, LG12 (U1a) and LG8, LG11 (U1b).
 +// Loop guard (.leerness/loop-guard-design-20261025.md section 7.1): rows LG1-LG18.
+@@ -103 +103 @@
+-    open: (id, s) => `LOOP ${id} opened: "${s}" (cap 3). After each completed failed cycle: leerness loop round ${id} --spot <key>`,
++    open: (id, s) => `LOOP ${id} opened: "${s}" (cap 10). After each completed failed cycle: leerness loop round ${id} --spot <key>`,
+@@ -114 +114 @@
+-    open: (id, s) => `LOOP ${id} 열림: "${s}" (한도 3회). 끝난 실패 회차마다: leerness loop round ${id} --spot <key>`,
++    open: (id, s) => `LOOP ${id} 열림: "${s}" (한도 10회). 끝난 실패 회차마다: leerness loop round ${id} --spot <key>`,
+@@ -160,0 +161 @@
++  seedLegacyLoops(dir, [S]);
+@@ -202 +203 @@
+-  check('fixture: open', loop(main, ['open', 'stress subject']).status === 0);
++  seedLegacyLoops(main, ['stress subject']);
+@@ -215,0 +217 @@
++  seedLegacyLoops(dir, ['alpha']);
+@@ -274 +276 @@
+-  loop(dir, ['round', 'L-0001', '--spot', 's2']);
++  loop(dir, ['round', 'L-0001', '--spot', 's1']);
+@@ -289,0 +292,20 @@
++function seedLegacyLoops(dir, subjects) {
++  seed(dir, subjects.map((subject, i) => ({ ...emptyLoop(i + 1), subject, subjectKey: subject.toLowerCase() })));
++}
++row('LG19', 'New ten-round budgets alongside frozen legacy budgets', () => {
++  const dir = repo('lg19');
++  seedLegacyLoops(dir, ['older']);
++  const open = subject => loop(dir, ['open', subject, '--json']).json.loop;
++  check('old loop keeps its frozen cap', open('older').cap === 3);
++  for (const [subject, last, verdict] of [['early pass', 8, 'go'], ['budget exhausted', 10, 'no-go']]) {
++    const item = open(subject);
++    check('new loop opens with ten rounds', item.cap === 10);
++    for (let n = 1; n <= last; n++) {
++      const result = n === last ? verdict : 'no-go';
++      const options = result === 'go' ? ['--result', 'go'] : ['--spot', 'check-' + n];
++      const r = loop(dir, ['round', item.id, ...options, '--json']);
++      check(subject + ' round ' + n, r.status === (n === 10 ? 3 : 0));
++      if (n === last) check(subject + ' outcome', result === 'go' ? r.json?.loop?.outcome === 'passed' : r.json?.reason === 'cap_reached', r.text);
++    }
++  }
++});
+@@ -386,0 +409 @@
++  seedLegacyLoops(dir, ['stopped subject', 'open subject', 'extended subject']);
+@@ -427,0 +451 @@
++  seedLegacyLoops(dir, ['ascii subject', 'second subject']);
+@@ -605 +629 @@
+-  const desc = { ko: '같은 주제의 반복 검수·수리 회차 기록 (기본 한도 3회) — 모든 worktree 공유, STOP 은 exit 3', en: 'records repeated review or fix rounds on one subject (default cap 3); shared by all worktrees; STOP exits 3' };
++  const desc = { ko: '같은 주제의 반복 검수·수리 회차 기록 (기본 한도 10회) — 모든 worktree 공유, STOP 은 exit 3', en: 'records repeated review or fix rounds on one subject (default cap 10); shared by all worktrees; STOP exits 3' };
+@@ -633,2 +657,2 @@
+-  const stop = (dir, subject) => { loop(dir, ['open', subject]); for (const spot of ['a', 'b', 'c']) loop(dir, ['round', 'L-0001', '--spot', spot]); };
+-  const stopLine = subject => `LOOP STOP L-0001 "${subject}" 3/3 rounds - owner decision required: leerness loop status L-0001`;
++  const stop = (dir, subject) => { loop(dir, ['open', subject]); for (let n = 1; n <= 10; n++) loop(dir, ['round', 'L-0001', '--spot', 'check-' + n]); };
++  const stopLine = subject => `LOOP STOP L-0001 "${subject}" 10/10 rounds - owner decision required: leerness loop status L-0001`;
+@@ -709,0 +734 @@
++  seedLegacyLoops(dir, ['capped subject']);
+@@ -729 +754 @@
+-  for (const spot of ['a', 'b', 'c']) loop(dir, ['round', 'L-0001', '--spot', spot]);
++  for (let n = 0; n < 3; n++) loop(dir, ['round', 'L-0001', '--spot', 'same-check']);
 diff --git a/scripts/migration-compat.js b/scripts/migration-compat.js
 index 6a59d825..efd41ec5 100644
 --- a/scripts/migration-compat.js
@@ -5463,7 +5663,7 @@ index a54878a2..243cf97e 100644
 @@ -187,0 +187 @@
 +  if (generator.includes("'_apps'")) offenders.push('reads-sibling-directory-outside-project');
 diff --git a/scripts/release-runtime-probe.js b/scripts/release-runtime-probe.js
-index e80e7a32..33e85a77 100644
+index e80e7a32..0fbe64da 100644
 --- a/scripts/release-runtime-probe.js
 +++ b/scripts/release-runtime-probe.js
 @@ -405,0 +406,15 @@
@@ -5482,6 +5682,12 @@ index e80e7a32..33e85a77 100644
 +    failures.push(`leerness-config.json 은 문서에 있는 비시크릿 LEERNESS_* 키만 환경변수로 올려야 함: ${JSON.stringify({ status: configLoaderChild.status, out: String(configLoaderChild.stdout || '').slice(0, 300), err: String(configLoaderChild.stderr || '').slice(0, 300) })}`);
 +  }
 +
+@@ -1179,4 +1194 @@
+-  const benchmarkStart = cliSource.indexOf('async function _benchmarkMeasure');
+-  const benchmarkEnd = cliSource.indexOf('\nfunction benchmarkCmd', benchmarkStart);
+-  const benchmarkBlock = benchmarkStart >= 0 && benchmarkEnd > benchmarkStart
+-    ? cliSource.slice(benchmarkStart, benchmarkEnd) : '';
++  const benchmarkBlock = cliSource.match(/^async function _benchmarkMeasure\([\s\S]*?(?=^(?:async )?function \w+\()/m)?.[0] || '';
 diff --git a/scripts/reminder-text-probe.js b/scripts/reminder-text-probe.js
 index 957c9689..d16d9cc4 100644
 --- a/scripts/reminder-text-probe.js
@@ -5501,8 +5707,38 @@ index 957c9689..d16d9cc4 100644
 -    assert.ok(path.basename(resolved).startsWith('leerness-reminder-text-'));removeTree(resolved, { recursive: true, force: true });
 -  }
 +  require('./temp-cleanup').runIsolatedWorker(__filename, 'leerness-reminder-text-', 'REMINDER_TEXT_ROOT', 600000);
+diff --git a/scripts/review-feedback-loop-cases.js b/scripts/review-feedback-loop-cases.js
+index 78cd8002..5992523c 100644
+--- a/scripts/review-feedback-loop-cases.js
++++ b/scripts/review-feedback-loop-cases.js
+@@ -73,5 +73,6 @@
+-  test('loop: the review-wide budget adds up stages and flags budgets above the recommended three', () => {
+-    const root = stagedFixture();
+-    let s = F.submit(root, stagedRound({ stageId: 'first', roundId: 'r-1', session: 'rev-1', verdict: 'FAIL', findings: [issue()] }));
+-    assert.deepEqual(s.goRoute.budget, { roundsUsed: 1, maxRounds: 3, remaining: 2 });
+-    assert.deepEqual(s.goRoute.reviewBudget, { roundsUsed: 1, maxRounds: 5, remaining: 4, recommendedMax: 3 });
++  test('loop: the review-wide budget adds up stages and flags budgets above the recommended ten', () => {
++    const large = staged(); large.stages[0].maxRounds = 9;
++    const root = stagedFixture(large);
++    let s = F.submit(root, stagedRound({ contract: large, stageId: 'first', roundId: 'r-1', session: 'rev-1', verdict: 'FAIL', findings: [issue()] }));
++    assert.deepEqual(s.goRoute.budget, { roundsUsed: 1, maxRounds: 9, remaining: 8 });
++    assert.deepEqual(s.goRoute.reviewBudget, { roundsUsed: 1, maxRounds: 11, remaining: 10, recommendedMax: 10 });
+@@ -79,2 +80,2 @@
+-    assert.ok(en.includes('review total 1/5'), en); assert.ok(en.includes('above the 3 recommended for ordinary work'), en);
+-    assert.ok(transport.summarize(s, 'ko').includes('일반 작업 권장치 3회를 넘습니다'));
++    assert.ok(en.includes('review total 1/11'), en); assert.ok(en.includes('above the 10 recommended for ordinary work'), en);
++    assert.ok(transport.summarize(s, 'ko').includes('일반 작업 권장치 10회를 넘습니다'));
+@@ -83 +84 @@
+-    assert.deepEqual(s.goRoute.reviewBudget, { roundsUsed: 1, maxRounds: 3, remaining: 1, recommendedMax: 3 });
++    assert.deepEqual(s.goRoute.reviewBudget, { roundsUsed: 1, maxRounds: 3, remaining: 1, recommendedMax: 10 });
+@@ -85 +86 @@
+-    const v1 = F.submit(fixture(), round()); assert.deepEqual(v1.goRoute.reviewBudget, { roundsUsed: 1, maxRounds: 3, remaining: 2, recommendedMax: 3 });
++    const v1 = F.submit(fixture(), round()); assert.deepEqual(v1.goRoute.reviewBudget, { roundsUsed: 1, maxRounds: 3, remaining: 2, recommendedMax: 10 });
+@@ -91 +92 @@
+-    const request = s.goRoute.steps.find(x => x.code === 'request-review'); assert.equal(request.continueSession, 'rev-1'); assert.equal(request.newSession, true);
++    const request = s.goRoute.steps.find(x => x.code === 'request-review'); assert.equal(request.continueSession, 'rev-1'); assert.equal(request.newSession, false);
 diff --git a/scripts/review-feedback-probe.js b/scripts/review-feedback-probe.js
-index 00ca63a4..47fa09ef 100644
+index 00ca63a4..0f1c9223 100644
 --- a/scripts/review-feedback-probe.js
 +++ b/scripts/review-feedback-probe.js
 @@ -209,0 +210,19 @@
@@ -5525,7 +5761,25 @@ index 00ca63a4..47fa09ef 100644
 +  for (const s of ['10억 개', 'low 비차단 의견', '그대로 차단', '결정마다 질문 하나'])
 +    assert.ok(g.projectGuidance('ko').includes(s), s);
 +});
-@@ -588,0 +608,16 @@
+@@ -317 +336 @@
+-  assert.equal(JSON.parse(result.stdout).result.contract.maxRounds, 3); const before = bytes(root);
++  assert.equal(JSON.parse(result.stdout).result.contract.maxRounds, 10); const before = bytes(root);
+@@ -319,0 +339,5 @@
++  const oldRoot = fixture({ ...c, maxRounds: 3 });
++  const oldBytes = bytes(oldRoot);
++  assert.equal(F.start(oldRoot, c).contract.maxRounds, 3);
++  assert.deepEqual(bytes(oldRoot), oldBytes);
++  assert.throws(() => F.start(oldRoot, { ...c, maxRounds: 4 }), { code: 'feedback_contract_changed' });
+@@ -404 +428,4 @@
+-  const c = staged(); delete c.stages[1].maxRounds; assert.equal(C.validateContract(c).stages[1].maxRounds, 3);
++  const c = staged(); delete c.stages[1].maxRounds; assert.equal(C.validateContract(c).stages[1].maxRounds, 7);
++  delete c.stages[0].maxRounds;
++  assert.deepEqual(C.validateContract(c).stages.map(s => s.maxRounds), [5, 5]);
++  assert.deepEqual(C.validateContract(c, { legacyDefaults: true }).stages.map(s => s.maxRounds), [3, 3]);
+@@ -499 +526 @@
+-  const request = g.steps[2]; assert.deepEqual([request.stageId, request.expectedRound, request.remainingRounds, request.newSession, request.reuseAttempt], ['first', 1, 2, true, false]);
++  const request = g.steps[2]; assert.deepEqual([request.stageId, request.expectedRound, request.remainingRounds, request.newSession, request.reuseAttempt], ['first', 1, 2, false, false]);
+@@ -588,0 +616,16 @@
 +test('argument errors say what was wrong, and a bare call or per-operation --help prints the usage', () => {
 +  const raw = args => cp.spawnSync(process.execPath, [cli, 'review-feedback', ...args], { cwd: arena, encoding: 'utf8', timeout: 60000, windowsHide: true });
 +  for (const args of [[], ['start', '--help'], ['show', '-h']]) {
@@ -5677,6 +5931,18 @@ index f6dbfd99..0c107e5d 100644
 -  assert.strictEqual((html.match(/"id":"skill:/g) || []).length, 4, 'one graph node per skill');
 +  const snapshot = JSON.parse(/^var DATA = (.+);$/m.exec(html)[1]);
 +  assert.deepStrictEqual(snapshot.roadmap.skills.map(s => s.name).sort(), ['g-nl', 'g-one', 'g-sp', 'g-two']);
+diff --git a/scripts/stored-read-adapters-probe.js b/scripts/stored-read-adapters-probe.js
+index fbcf3bf0..a3066b6e 100644
+--- a/scripts/stored-read-adapters-probe.js
++++ b/scripts/stored-read-adapters-probe.js
+@@ -296 +296 @@
+-  for (const spot of ['a', 'b']) assert.equal(f.run(['loop', 'round', 'L-0001', '--spot', spot]).status, 0);
++  for (const spot of ['a', 'a']) assert.equal(f.run(['loop', 'round', 'L-0001', '--spot', spot]).status, 0);
+@@ -298,2 +298,2 @@
+-  assert.deepEqual(result.data.loopGuard.open, [{ id: 'L-0001', subject: 'peer subject', rounds: 2, cap: 3 }]);
+-  assert.equal(f.run(['loop', 'round', 'L-0001', '--spot', 'c']).status, 3);
++  assert.deepEqual(result.data.loopGuard.open, [{ id: 'L-0001', subject: 'peer subject', rounds: 2, cap: 10 }]);
++  assert.equal(f.run(['loop', 'round', 'L-0001', '--spot', 'a']).status, 3);
 diff --git a/scripts/task-review-assessment-probe.js b/scripts/task-review-assessment-probe.js
 index c81640b4..4cb6fbb9 100644
 --- a/scripts/task-review-assessment-probe.js
