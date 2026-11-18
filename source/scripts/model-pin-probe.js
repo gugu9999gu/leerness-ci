@@ -432,12 +432,16 @@ test('ambiguous or unconfirmed model names are asked, not guessed', async () => 
     assert.strictEqual(ambiguous.exitCode, 1);
     assert.strictEqual(ambiguous.json.code, 'model_pin_ambiguous');
     assert.ok(ambiguous.json.candidates.length >= 1);
+    for (const quoted of ['alpha-model-1-mini','new-alpha-model-1','alpha-model-1.2','org/alpha-model-1']) {
+      const partial = await pin(h, 'x', 'T-10', A, ['--source','user-stated','--user-words','Please use ' + quoted + '.']);
+      assert.strictEqual(partial.json.code, 'model_pin_needs_exact_id');
+    }
     const guessed = await pin(h, 'x', 'T-10', { provider: 'claude', model: 'claude-sonnet-4-5' }, ['--source', 'user-stated', '--user-words', '소넷으로 해줘']);
     assert.strictEqual(guessed.json.code, 'model_pin_needs_exact_id');
     const badSource = await pin(h, 'x', 'T-10', A, ['--source', 'agent-guess']);
     assert.strictEqual(badSource.json.code, 'model_pin_source_invalid');
     assert.strictEqual(events(h.root, 'model.pinned').length, 0);
-    const stated = await pin(h, 'x', 'T-10', A, ['--source', 'user-stated', '--user-words', 'please use alpha-model-1']);
+    const stated = await pin(h, 'x', 'T-10', A, ['--source', 'user-stated', '--user-words', 'please use (alpha-model-1).']);
     assert.strictEqual(stated.exitCode, 0, stated.text);
     assert.strictEqual(events(h.root, 'model.pinned')[0].pin.model, A.model);
   } finally { removeFixture(h.root); }

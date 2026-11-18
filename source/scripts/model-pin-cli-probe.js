@@ -298,6 +298,47 @@ test('a reviewer pin is separate from the worker pin and refuses another reviewe
   assert.strictEqual(count(dir, 'review.completed', e => e.taskId === 'T-10'), 1);
 }));
 
+test('one-shot role selection inherits and records only that role-specific pin', () => withProject('role-call', async (dir, s) => {
+  const id = 'T-roles';
+  const select = (role, model) => run(dir, s, ['agents', 'pin', 'role task', '--id', id, '--role', role, '--provider', 'ollama', '--model', model, '--json']);
+  assert.strictEqual((await select('reviewer', 'review-model')).status, 0);
+  const review = () => run(dir, s, ['agent', 'role task', '--role', 'reviewer', '--id', id]);
+  assert.strictEqual((await review()).status, 0);
+  assert.strictEqual(sent(s, 'review-model'), 1);
+  assert.strictEqual(count(dir, 'model.pinned'), 1);
+  assert.strictEqual((await select('coder', 'build-model')).status, 0);
+  assert.strictEqual((await run(dir, s, ['agent', 'role task', '--id', id])).status, 0);
+  assert.strictEqual((await review()).status, 0);
+  assert.deepStrictEqual(s.requests.map(r => r.model), ['review-model', 'build-model', 'review-model']);
+  const denied = await agent(dir, s, 'role task', id, 'build-model', ['--role', 'reviewer', '--json']);
+  assert.strictEqual(denied.status, 1);
+  assert.strictEqual(s.requests.length, 3);
+  const rows = ledger(dir);
+  const reviews = rows.filter(e => e.requestedRole === 'reviewer' && e.event === 'execution.completed');
+  assert.strictEqual(reviews.length, 2);
+  for (const end of reviews) assert(rows.some(start => start.eventId === end.parentAttemptId && start.attemptId === end.attemptId
+    && start.event === 'execution.started' && start.requestedRole === 'reviewer'));
+}));
+
+test('terminal replays compare caller provenance after resolving the original parent', () => withProject('replay-fields', async (dir, s)=> {
+  const id = 'T-replay';
+  await run(dir, s, ['agents', 'pin', 'review', '--id', id, '--role', 'reviewer', '--provider', 'live', '--model', 'live-model-1', '--json']);
+  assert.strictEqual((await record(dir, s, 'completed', id, 'work', 'spare', 'spare-model-1')).status, 0);
+  const review = extra => record(dir, s, 'reviewed', id, 'review', 'live', 'live-model-1', ['--target', 'work', '--session-id', 'review-session', ...extra]);
+  const first = await review([]);
+  assert.strictEqual(first.status, 0, first.text);
+  const replay = await review([]);
+  assert.strictEqual(replay.json.idempotent, true, replay.text);
+  for (const extra of [['--status', 'changed'], ['--feedback-round', 'other-round']]) {
+    const conflict = await review(extra);
+    assert.strictEqual(conflict.json.code, 'model_pin_event_conflict', conflict.text);
+  }
+  const switched = await record(dir, s, 'reviewed', id, 'review', 'live', 'live-model-1', ['--target', 'work', '--session-id', 'other-session']);
+  assert.strictEqual(switched.json.code, 'model_pin_event_conflict', switched.text);
+  assert.strictEqual(count(dir, 'review.completed'), 1);
+  assert.strictEqual((await review([])).json.idempotent, true);
+}));
+
 test('the MCP fallback and record tools keep the pin', () => withProject('mcp', async (dir, s) => {
   assert.strictEqual((await run(dir, s, ['agents', 'pin', 'mcp eleven', '--id', 'T-11', '--provider', 'live', '--model', 'live-model-1', '--json'])).status, 0);
   await approve(dir, s, 'T-11', 'spare', 'spare-model-1');

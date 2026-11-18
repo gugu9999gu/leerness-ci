@@ -45,6 +45,9 @@ const contentDigest = record => digest(JSON.stringify([
   record.approvalEventId || null, record.dispatchEventId || null, record.executed === true,
   [...(record.evidenceRefs || [])].map(String).sort(), (record.result && record.result.summary) || null, record.parentAttemptId || null,
   record.reportedModel == null ? null : String(record.reportedModel), record.modelVerification == null ? null : String(record.modelVerification),
+  record.status ?? null, record.review?.feedbackRoundId ?? null, record.reviewOfAttemptId ?? null,
+  record.requestedRole ?? null, record.sessionId ?? null, record.actualExecutor?.sessionId ?? null,
+  record.actualExecutor?.modelFamily ?? null, record.requestDigest ?? null,
 ]));
 
 function pinError(code, message, extra = {}) {
@@ -319,17 +322,19 @@ function ensurePin(root, { taskId, scope = 'execution', provider, model, source 
   return require('./role-fallback').appendExecutionEvent(root, { event: 'model.pinned', taskId, pin: newPin({ provider, model, source, request, scope }), executed: false });
 }
 
-function reserveAttempt(root, { taskId, executor, approvalEventId = null, request, requestDigest: knownDigest = null, attemptId = newAttemptId() }) {
+function reserveAttempt(root, { taskId, role, executor, approvalEventId = null, request, attemptId = newAttemptId() }) {
   const written = require('./role-fallback').appendExecutionEvent(root, {
-    event: 'execution.started', taskId, attemptId, actualExecutor: callIdentity(executor), approvalEventId, requestDigest: knownDigest || requestDigest(request),
+    event: 'execution.started', taskId, attemptId, actualExecutor: callIdentity(executor), approvalEventId, requestDigest: requestDigest(request),
+    requestedRole: scopeOfRole(role) === 'review' ? 'reviewer' : null,
     result: { summary: 'attempt reserved before the model call' }, executed: false,
   });
   return { attemptId, event: written.event };
 }
 
-function finishAttempt(root, { taskId, attemptId, executor, ok, reportedModel = null, error = null }) {
+function finishAttempt(root, { taskId, attemptId, startedEvent, executor, ok, reportedModel = null, error = null }) {
   return require('./role-fallback').appendExecutionEvent(root, {
     event: ok ? 'execution.completed' : 'execution.failed', taskId, attemptId, actualExecutor: callIdentity(executor),
+    ...(startedEvent?.requestedRole ? { requestedRole: startedEvent.requestedRole, parentAttemptId: startedEvent.eventId } : {}),
     reportedModel, modelVerification: ok ? 'provider-reported' : reportedModel ? 'mismatch' : 'unverified',
     result: { summary: ok ? 'model call completed with the provider-reported model' : String(error || 'model call failed').slice(0, 300) },
     evidenceRefs: [`leerness-call:${attemptId}`], executed: true,
@@ -341,7 +346,8 @@ function pinRequestProblem({ provider, model, source, quote, catalog }) {
   if (!id.provider || !id.model) return { code: 'model_pin_invalid', error: 'a canonical provider and an exact model id are required' };
   if (!PIN_SOURCES.has(source)) return { code: 'model_pin_source_invalid', error: `source must be one of ${[...PIN_SOURCES].join(', ')}` };
   if (source !== 'user-stated') return null;
-  if (!quote || !String(quote).toLowerCase().includes(id.model.toLowerCase())) {
+  const words = String(quote || '').match(/[A-Za-z0-9._:/@+-]+/g) || [];
+  if (!words.some(word => word === id.model || word.replace(/[.:]+$/, '') === id.model)) {
     return { code: 'model_pin_needs_exact_id', status: 'NEEDS_DECISION', error: `the user's words must contain the exact model id ${id.model}; ask the user to confirm the exact id` };
   }
   const ids = (Array.isArray(catalog) ? catalog : []).map(item => String(item && item.id || item)).filter(Boolean);
