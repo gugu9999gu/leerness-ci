@@ -34,6 +34,12 @@ jobs:
           LC_CTYPE: ''
         run: |
           set +e
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('lib/runtime-writes.js')
+          s = p.read_text()
+          p.write_text(s.replace('operation.failure = error;', 'console.error(error.stack, Array.from(operation.readers.keys())); operation.failure = error;', 1))
+          PY
           project=$(mktemp -d)
           node bin/leerness.js init "$project" --yes --no-banner --no-stale-check --language ko --skills recommended
           echo "init exit $?"
