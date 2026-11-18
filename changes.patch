@@ -3221,7 +3221,7 @@ index 2098b98b..4243d57e 100644
 -    note: '1.9.268 정식 provider 승격 — slash-commands --refresh 로 자동 probe 가능. 커뮤니티 Grok CLI(@vibe-kit/grok-cli) 기준 큐레이션, 배포판마다 차이 가능.',
 +    note: 'slash-commands --refresh 로 자동 probe 가능. 커뮤니티 Grok CLI(@vibe-kit/grok-cli) 기준 큐레이션, 배포판마다 차이 가능.',
 diff --git a/lib/agents.js b/lib/agents.js
-index 961fcab7..0aaab804 100644
+index 961fcab7..72118d5d 100644
 --- a/lib/agents.js
 +++ b/lib/agents.js
 @@ -63,0 +64 @@
@@ -3278,16 +3278,32 @@ index 961fcab7..0aaab804 100644
 @@ -253 +300 @@
 -        const duplicate = normalizedHistory.some(item => item
 +        const duplicateIndex = normalizedHistory.findIndex(item => item
-@@ -256 +303,6 @@
+@@ -256 +303,21 @@
 -        if (duplicate) return { ok: false, code: 'attempt_already_terminal', error: `attempt already has a terminal event: ${canonicalEvent.attemptId}` };
 +
-+        const replayWithPin = duplicateIndex >= 0 && canonicalEvent.taskId
-+          && _modelPin.pinState(history.events, canonicalEvent.taskId, _modelPin.scopeOfRecord(canonicalEvent)).pin;
-+        if (duplicateIndex >= 0 && !replayWithPin) {
-+          return { ok: false, code: 'attempt_already_terminal', error: `attempt already has a terminal event: ${canonicalEvent.attemptId}` };
++        // Recovery can be issued from the CLI or MCP without repeating the reserved role.
++        if (['execution.completed', 'execution.failed'].includes(canonicalEvent.event)) {
++          const start = normalizedHistory.find(item => item?.event === 'execution.started'
++            && item.taskId === canonicalEvent.taskId && item.attemptId === canonicalEvent.attemptId
++            && item.actualExecutor?.identitySource === 'leerness-call');
++          if (start) {
++            const parent = canonicalEvent.parentAttemptId;
++            if (parent && parent !== start.eventId && parent !== start.attemptId) {
++              return { ok: false, code: 'execution_target_mismatch', error: 'terminal must reference its reserved attempt' };
++            }
++            if (canonicalEvent.requestedRole && canonicalEvent.requestedRole !== start.requestedRole) {
++              return { ok: false, code: 'execution_target_role_mismatch', error: 'terminal role differs from the reserved attempt' };
++            }
++            if (start.requestedRole || parent) canonicalEvent = { ...canonicalEvent, parentAttemptId: start.eventId };
++          }
 +        }
-@@ -349,0 +402,8 @@
-+        if (replayWithPin) {
++        const duplicateError = () => ({ ok: false, code: 'attempt_already_terminal', error: 'attempt already has a terminal event: ' + canonicalEvent.attemptId });
++        if (duplicateIndex >= 0 && !history.events.some(item => item.event === 'model.pinned' && item.taskId === canonicalEvent.taskId)) {
++          return duplicateError();
++        }
+@@ -349,0 +417,9 @@
++        if (duplicateIndex >= 0) {
++          if (!_modelPin.pinState(history.events, canonicalEvent.taskId, _modelPin.scopeOfRecord(canonicalEvent)).pin) return duplicateError();
 +          const previous = normalizedHistory[duplicateIndex];
 +          if (previous.event === canonicalEvent.event && previous.taskId === canonicalEvent.taskId
 +            && _modelPin.contentDigest(previous) === _modelPin.contentDigest(canonicalEvent)) {
@@ -3295,13 +3311,13 @@ index 961fcab7..0aaab804 100644
 +          }
 +          return { ok: false, code: 'model_pin_event_conflict', error: `attempt ${canonicalEvent.attemptId} already ended with different content` };
 +        }
-@@ -390 +450 @@
+@@ -390 +466 @@
 -    if (!resolved) return { ok: false, code: 'role_unconfigured', error: `역할 미설정: ${role}`, role };
 +    if (!resolved) return { ok: false, code: 'role_unconfigured', error: t(`역할 미설정: ${role} — leerness roles set ${role} --provider <id> 또는 roles suggest --apply 로 설정하세요. 실행 기록만 남기려면 --role 없이 agents record completed ... --provider <id> --model <model> 을 쓰세요.`, `role not configured: ${role}; set it with leerness roles set ${role} --provider <id> or roles suggest --apply. To record an attempt without a role, run agents record completed ... --provider <id> --model <model> without --role.`), role };
-@@ -463 +523 @@
+@@ -463 +539 @@
 -  const _renderResolution = (result, task) => {
 +  const _renderResolution = (result, task, taskId = null) => {
-@@ -488,4 +548,5 @@
+@@ -488,4 +564,5 @@
 -    log(`  leerness agents fallback provider ${JSON.stringify(task)} --role ${r.role} --to <provider> [--model <model>]`);
 -    log(`  leerness agents fallback session ${JSON.stringify(task)} --role ${r.role}`);
 -    log(`  leerness agents fallback direct ${JSON.stringify(task)} --role ${r.role}`);
@@ -3311,20 +3327,20 @@ index 961fcab7..0aaab804 100644
 +    log(`  leerness agents fallback session ${JSON.stringify(task)} --role ${r.role}${idPart}`);
 +    log(`  leerness agents fallback direct ${JSON.stringify(task)} --role ${r.role}${idPart}`);
 +    log(`  leerness agents fallback hold ${JSON.stringify(task)} --role ${r.role}${idPart}`);
-@@ -501 +562 @@
+@@ -501 +578 @@
 -    log(t(`# 외부 AI CLI 오케스트레이션 (1.9.30)`, `# External AI CLI orchestration (1.9.30)`));
 +    log(t(`# 외부 AI CLI 오케스트레이션`, `# External AI CLI orchestration`));
-@@ -539,2 +600,2 @@
+@@ -539,2 +616,2 @@
 -        `  1) CLI 설치 (예: \`npm i -g @openai/codex-cli\`, \`npm i -g @google/antigravity-cli\`)`,
 -        `  1) Install a CLI (for example, \`npm i -g @openai/codex-cli\` or \`npm i -g @google/antigravity-cli\`)`,
 +        `  1) CLI 설치 (예: \`npm i -g @openai/codex\`, \`npm i -g @google/antigravity-cli\`)`,
 +        `  1) Install a CLI (for example, \`npm i -g @openai/codex\` or \`npm i -g @google/antigravity-cli\`)`,
-@@ -548,2 +609,2 @@
+@@ -548,2 +625,2 @@
 -        `  💡 1.9.157: 빌트인 외 CLI 추가: \`leerness provider add <id> --bin <cmd>\``,
 -        `  💡 1.9.157: Add a CLI beyond the built-ins: \`leerness provider add <id> --bin <cmd>\``,
 +        `  💡 빌트인 외 CLI 추가: \`leerness provider add <id> --bin <cmd>\``,
 +        `  💡 Add a CLI beyond the built-ins: \`leerness provider add <id> --bin <cmd>\``,
-@@ -627,0 +689,144 @@
+@@ -627,0 +705,144 @@
 +  if (sub === 'pin') {
 +    const json = has('--json');
 +    const taskId = arg('--id', null);
@@ -3469,10 +3485,10 @@ index 961fcab7..0aaab804 100644
 +    return out;
 +  }
 +
-@@ -631 +836 @@
+@@ -631 +852 @@
 -    if (!task || !roleArg) { failJson(has('--json'), 'role_and_task_required', 'agents resolve "<task>" --role <role>'); return; }
 +    if (!task || !roleArg) { failJson(has('--json'), 'role_and_task_required', 'agents resolve "<task>" --role <role> [--id <task-id>]'); return; }
-@@ -634 +839,13 @@
+@@ -634 +855,13 @@
 -    const taskId = _generatedTaskId('task');
 +    const explicitTaskId = arg('--id', null);
 +    const pinRead = _pinStateFor(explicitTaskId, _modelPin.scopeOfRole(result.role));
@@ -3487,16 +3503,16 @@ index 961fcab7..0aaab804 100644
 +    }
 +    const modelPin = pinned ? { requested: _modelPin.canonical(pinned), failures: pinRead.state.failures, openAttempts: [...pinRead.state.open] } : null;
 +    const taskId = explicitTaskId || _generatedTaskId('task');
-@@ -648 +865 @@
+@@ -648 +881 @@
 -    const out = { ok: true, task, taskId, role: result.role, classification: result.cls, resolution: result.resolution, auditWritten: audit.ok === true, auditEventId: audit.event.eventId, auditError: null };
 +    const out = { ok: true, task, taskId, role: result.role, classification: result.cls, resolution: result.resolution, modelPin, auditWritten: audit.ok === true, auditEventId: audit.event.eventId, auditError: null };
-@@ -650 +867 @@
+@@ -650 +883 @@
 -    _renderResolution(result, task);
 +    _renderResolution(result, task, taskId);
-@@ -651,0 +869,2 @@
+@@ -651,0 +885,2 @@
 +    if (pinned) log(t(`  고정 모델: ${_modelPin.describe(pinned)} · 다른 모델은 이 작업에 대한 사용자 승인 뒤에만 준비됩니다 (fallback·dispatch 에 --id ${taskId})`,
 +      `  pinned model: ${_modelPin.describe(pinned)} · another model is prepared only after the user approves it for this task (pass --id ${taskId} to fallback/dispatch)`));
-@@ -672,0 +892,10 @@
+@@ -672,0 +908,10 @@
 +    const pinRead = _pinStateFor(arg('--id', null), _modelPin.scopeOfRole(result.role));
 +    if (!pinRead.ok) { failJson(has('--json'), pinRead.code, pinRead.error); return; }
 +    let pinApprovalEventId = null;
@@ -3507,11 +3523,11 @@ index 961fcab7..0aaab804 100644
 +      if (!guard.ok) return _pinDecision(guard.payload);
 +      pinApprovalEventId = guard.approvalEventId;
 +    }
-@@ -697,0 +927 @@
+@@ -697,0 +943 @@
 +      ...(option.kind === 'hold' ? {} : _pinRecord(pinRead.state, option.executor, pinApprovalEventId, task)),
-@@ -711,0 +942 @@
+@@ -711,0 +958 @@
 +      modelPin: pinRead.state.pin ? { requested: _modelPin.canonical(pinRead.state.pin), approvalEventId: pinApprovalEventId } : null,
-@@ -730,11 +961,2 @@
+@@ -730,11 +977,2 @@
 -    const action = _findAgentAction(args, new Set(['start', 'started', 'partial', 'complete', 'completed', 'fail', 'failed', 'review', 'reviewed', 'validate', 'validated']));
 -    const rawEvent = action.action || '';
 -    const eventMap = {
@@ -3525,14 +3541,14 @@ index 961fcab7..0aaab804 100644
 -    const summary = (action.index >= 0 ? _parseAgentPositional(args, action.index + 1) : '') || arg('--result', null) || arg('--summary', null);
 +    const rawEvent = recordAction.action || '';
 +    const summary = (recordAction.index >= 0 ? _parseAgentPositional(args, recordAction.index + 1) : '') || arg('--result', null) || arg('--summary', null);
-@@ -780 +1001,0 @@
+@@ -780 +1017,0 @@
 -    const terminal = ['execution.completed', 'execution.failed', 'review.completed', 'validation.completed'].includes(eventName);
-@@ -786,0 +1008 @@
+@@ -786,0 +1024 @@
 +      ...(arg('--dispatch-id', null) ? { dispatchEventId: arg('--dispatch-id', null) } : {}),
-@@ -835 +1057 @@
+@@ -835 +1073 @@
 -      if (canonicalEvent.requestedRole && !canonicalEvent.parentAttemptId) missing.push('--target (role selection/attempt link)');
 +      if (canonicalEvent.requestedRole && !canonicalEvent.parentAttemptId) missing.push('--target (role selection/attempt link: the routing event id that agents resolve prints; omit --role to record without one)');
-@@ -841,0 +1064,10 @@
+@@ -841,0 +1080,10 @@
 +    if (!audit.ok && String(audit.code || '').startsWith('model_pin_') && canonicalEvent.taskId) {
 +      const diagnostic = _ledgerEvent({
 +        event: 'model.pin.violation', taskId: canonicalEvent.taskId, attemptId: canonicalEvent.attemptId || null,
@@ -3543,53 +3559,53 @@ index 961fcab7..0aaab804 100644
 +        { status: 'NEEDS_DECISION', diagnosticEventId: diagnostic.ok ? diagnostic.event.eventId : null });
 +      return;
 +    }
-@@ -843 +1075 @@
+@@ -843 +1091 @@
 -    const out = { ok: true, event: audit.event, file: audit.file };
 +    const out = { ok: true, event: audit.event, file: audit.file, idempotent: !!audit.idempotent };
-@@ -882 +1114 @@
+@@ -882 +1130 @@
 -    log(`# leerness agents recommend (1.36.78)`);
 +    log(`# leerness agents recommend`);
-@@ -907 +1139 @@
+@@ -907 +1155 @@
 -    log(`\n## 인증 확인 (1.36.91)`);
 +    log(`\n## 인증 확인`);
-@@ -928,0 +1161,6 @@
+@@ -928,0 +1177,6 @@
 +    const multiPin = _pinStateFor(arg('--id', null));
 +    if (!multiPin.ok) { failJson(has('--json'), multiPin.code, multiPin.error); return; }
 +    if (arg('--model', null) || multiPin.state.pin) {
 +      failJson(has('--json'), 'model_pin_unsupported_path', 'agents multi runs provider default models and cannot carry a specified model; nothing was run. Use agents dispatch --id <task-id>');
 +      return;
 +    }
-@@ -942 +1180 @@
+@@ -942 +1196 @@
 -      fail('활성 (ready) 에이전트 없음 — `leerness agents list` 로 확인. 1.9.151 install 흐름에서 복수 선택 후 .env 활성화 필요.');
 +      fail('활성 (ready) 에이전트 없음 — `leerness agents list` 로 확인. install 흐름에서 복수 선택 후 .env 활성화 필요.');
-@@ -952,0 +1191,5 @@
+@@ -952,0 +1207,5 @@
 +      const timeoutValue = String(arg('--timeout', '60'));
 +      if (!/^[1-9][0-9]*$/.test(timeoutValue) || Number(timeoutValue) > 3600) {
 +        failJson(has('--json'), 'invalid_multi_timeout', 'multi --timeout must be an integer from 1 to 3600 seconds');
 +        return;
 +      }
-@@ -954 +1197 @@
+@@ -954 +1213 @@
 -        const timeout = parseInt(arg('--timeout', '60'), 10) * 1000;
 +        const timeout = Number(timeoutValue) * 1000;
-@@ -973 +1216 @@
+@@ -973 +1232 @@
 -          log(`# leerness agents multi --execute (1.9.156) — ${ready.length}개 활성 에이전트 병렬 호출`);
 +          log(`# leerness agents multi --execute — ${ready.length}개 활성 에이전트 병렬 호출`);
-@@ -1068 +1311 @@
+@@ -1068 +1327 @@
 -          log(`## 🏆 합의 선택 (multi-signal consensus, 1.9.155)`);
 +          log(`## 🏆 합의 선택 (multi-signal consensus)`);
-@@ -1078 +1321 @@
+@@ -1078 +1337 @@
 -            const block = `\n## ${today()} agents multi --execute (1.9.156)\n- task: ${task.slice(0, 200)}\n- agents: ${ready.map(x => x.def.id).join(', ')}\n- success: ${ok.length}/${ready.length}\n- best: ${best.agent} (score=${best.score.toFixed(3)})\n`;
 +            const block = `\n## ${today()} agents multi --execute\n- task: ${task.slice(0, 200)}\n- agents: ${ready.map(x => x.def.id).join(', ')}\n- success: ${ok.length}/${ready.length}\n- best: ${best.agent} (score=${best.score.toFixed(3)})\n`;
-@@ -1116 +1359 @@
+@@ -1116 +1375 @@
 -    log(`# leerness agents multi (1.9.152) — ${ready.length}개 활성 에이전트 일괄 dispatch`);
 +    log(`# leerness agents multi — ${ready.length}개 활성 에이전트 일괄 dispatch`);
-@@ -1135 +1378 @@
+@@ -1135 +1394 @@
 -    log('## 정책 (1.9.152 / 1.9.156)');
 +    log('## 정책');
-@@ -1137 +1380 @@
+@@ -1137 +1396 @@
 -    log(`  - 1.9.156 신규: \`--execute\` 플래그 시 leerness가 직접 ${ready.length}개 sub-agent 병렬 spawn + multi-signal consensus 자동 합의`);
 +    log(`  - \`--execute\` 플래그 시 leerness가 직접 ${ready.length}개 sub-agent 병렬 spawn + multi-signal consensus 자동 합의`);
-@@ -1153,2 +1396,10 @@
+@@ -1153,2 +1412,10 @@
 -    const roleTaskId = roleArg ? _generatedTaskId('task') : null;
 -    let roleModel = arg('--model', null);
 +    const explicitModel = arg('--model', null);
@@ -3602,10 +3618,10 @@ index 961fcab7..0aaab804 100644
 +    if (pinState.pin && !target) target = pinState.pin.provider;
 +    let roleModel = explicitModel
 +      || (pinState.pin && (!explicitTarget || explicitTarget === pinState.pin.provider) ? pinState.pin.model : null);
-@@ -1177 +1428 @@
+@@ -1177 +1444 @@
 -    if (!target) { fail('--to <agent_id> 또는 --role <role> 필요 (claude/codex/agy/grok/copilot) — 활성 전체 일괄은 `leerness agents multi`'); return process.exit(1); }
 +    if (!target) { fail('--to <agent_id> 또는 --role <role> 필요 (leerness agents list 의 id) — 활성 전체 일괄은 `leerness agents multi`'); return process.exit(1); }
-@@ -1185,0 +1437,12 @@
+@@ -1185,0 +1453,12 @@
 +    if (explicitModel && !isValidModelIdentifier(explicitModel)) {
 +      failJson(has('--json'), 'invalid_model_identifier', 'model is not a safe model identifier');
 +      return;
@@ -3618,17 +3634,17 @@ index 961fcab7..0aaab804 100644
 +      if (!reread.ok) { failJson(has('--json'), reread.code, reread.error); return; }
 +      pinState = reread.state;
 +    }
-@@ -1186,0 +1450,3 @@
+@@ -1186,0 +1466,3 @@
 +    if (status.status !== 'ready' && pinState.pin) {
 +      return _pinDecision(_modelPin.decisionPayload(pinState, { provider: target, model: roleModel }, `${target} is not ready (${status.status})`, 'model_pin_unavailable'));
 +    }
-@@ -1202 +1468 @@
+@@ -1202 +1484 @@
 -        if (result.ok) _renderResolution(result, task);
 +        if (result.ok) _renderResolution(result, task, roleTaskId);
-@@ -1235 +1501 @@
+@@ -1235 +1517 @@
 -          _renderResolution(roleResolutionResult, task);
 +          _renderResolution(roleResolutionResult, task, roleTaskId);
-@@ -1249,0 +1516,10 @@
+@@ -1249,0 +1532,10 @@
 +    let pinApprovalEventId = null;
 +    if (pinState.pin) {
 +      const executor = { provider: target, model: roleModel || null };
@@ -3639,74 +3655,74 @@ index 961fcab7..0aaab804 100644
 +      if (!guard.ok) return _pinDecision(guard.payload);
 +      pinApprovalEventId = guard.approvalEventId;
 +    }
-@@ -1255 +1531 @@
+@@ -1255 +1547 @@
 -      log(`# leerness agents dispatch (1.9.36)`);
 +      log(`# leerness agents dispatch`);
-@@ -1261 +1537 @@
+@@ -1261 +1553 @@
 -      if (roleModel) log(`# 🎭 모델: ${roleModel} (역할 기반 라우팅, 1.9.270)`);
 +      if (roleModel) log(`# 🎭 모델: ${roleModel} (역할 기반 라우팅)`);
-@@ -1280 +1556,3 @@
+@@ -1280 +1572,3 @@
 -    }, { allowLegacyProviderIds: true }) : null;
 +    }, { allowLegacyProviderIds: true }) : pinState.pin
 +      ? normalizeExecutorIdentity({ provider: pinState.pin.provider, model: pinState.pin.model, identitySource: 'model-pin' }, { allowLegacyProviderIds: true })
 +      : null;
-@@ -1293 +1571 @@
+@@ -1293 +1587 @@
 -      substitution: { occurred: substituted, kind: substituted ? 'explicit-provider-or-model' : 'none' },
 +      substitution: { occurred: substituted, kind: pinApprovalEventId ? 'approved-model-change' : substituted ? 'explicit-provider-or-model' : 'none' },
-@@ -1295,0 +1574 @@
+@@ -1295,0 +1590 @@
 +      ..._pinRecord(pinState, actualExecutor, pinApprovalEventId, task),
-@@ -1299,0 +1579 @@
+@@ -1299,0 +1595 @@
 +          taskId: roleTaskId,
-@@ -1302 +1582 @@
+@@ -1302 +1598 @@
 -          requestedExecutor: null,
 +          requestedExecutor: pinState.pin ? requestedExecutor : null,
-@@ -1304 +1584 @@
+@@ -1304 +1600 @@
 -          substitution: { occurred: false, kind: 'none' },
 +          substitution: { occurred: substituted, kind: pinApprovalEventId ? 'approved-model-change' : 'none' },
-@@ -1306,0 +1587 @@
+@@ -1306,0 +1603 @@
 +          ..._pinRecord(pinState, actualExecutor, pinApprovalEventId, task),
-@@ -1309 +1590 @@
+@@ -1309 +1606 @@
 -    if (roleArg && !audit.ok) {
 +    if ((roleArg || pinState.pin || String(audit.code || '').startsWith('model_pin_')) && !audit.ok) {
-@@ -1314 +1595 @@
+@@ -1314 +1611 @@
 -      log(JSON.stringify({ ok: true, action: 'dispatch-prepared', taskId: roleTaskId, role: roleArg ? _normalizeRole(roleArg) : null, target, model: roleModel || null, status, mode: writeMode ? 'write' : 'read-only', command: preparedCommand, executed: false, auditWritten: audit.ok === true, auditEventId: audit.ok === true ? audit.event.eventId : null, auditError: audit.ok === true ? null : audit.error }, null, 2));
 +      log(JSON.stringify({ ok: true, action: 'dispatch-prepared', taskId: roleTaskId, modelPin: pinState.pin ? { requested: _modelPin.canonical(pinState.pin), approvalEventId: pinApprovalEventId } : null, role: roleArg ? _normalizeRole(roleArg) : null, target, model: roleModel || null, status, mode: writeMode ? 'write' : 'read-only', command: preparedCommand, executed: false, auditWritten: audit.ok === true, auditEventId: audit.ok === true ? audit.event.eventId : null, auditError: audit.ok === true ? null : audit.error }, null, 2));
-@@ -1318 +1599,3 @@
+@@ -1318 +1615,3 @@
 -    if (roleArg && audit.ok) log(`# provenance: task=${roleTaskId} · target=${audit.event.eventId}`);
 +    if ((roleArg || pinState.pin) && audit.ok) log(`# provenance: task=${roleTaskId} · target=${audit.event.eventId}`);
 +    if (pinState.pin) log(t(`# 🔒 고정 모델 ${_modelPin.describe(pinState.pin)} — 실패 시 다른 모델로 바꾸지 말고 사용자에게 물으세요`, `# 🔒 pinned model ${_modelPin.describe(pinState.pin)} — on failure ask the user; do not switch models`));
 +    if (pinApprovalEventId && audit.ok) log(t(`# 승인된 변경 1회분: 실행 기록은 agents record started|completed --task ${roleTaskId} --id <attempt> --dispatch-id ${audit.event.eventId} 로 남기세요`, `# one approved change: record the run with agents record started|completed --task ${roleTaskId} --id <attempt> --dispatch-id ${audit.event.eventId}`));
-@@ -1320 +1603 @@
+@@ -1320 +1619 @@
 -    if (!has('--raw') && typeof _harnessBrief === 'function') log(`# ℹ harness 위임 브리프 자동 접두 (1.35.6) — 원문만 위임하려면 --raw`);
 +    if (!has('--raw') && typeof _harnessBrief === 'function') log(`# ℹ harness 위임 브리프 자동 접두 — 원문만 위임하려면 --raw`);
-@@ -1330 +1613 @@
+@@ -1330 +1629 @@
 -        log(`## 🤖 ${target} 슬래시 명령 (1.9.265, UR-0021)`);
 +        log(`## 🤖 ${target} 슬래시 명령`);
-@@ -1337 +1620 @@
+@@ -1337 +1636 @@
 -    log(`## 정책 (1.9.36)`);
 +    log(`## 정책`);
-@@ -1340,2 +1623,2 @@
+@@ -1340,2 +1639,2 @@
 -    log(`  - quota 체크: \`leerness agents quota\` (1.9.31+)`);
 -    log(`  - 동시 호출 시: \`leerness agents bench "<task>"\` (1.9.36)`);
 +    log(`  - quota 체크: \`leerness agents quota\``);
 +    log(`  - 동시 호출 시: \`leerness agents bench "<task>"\``);
-@@ -1343 +1626 @@
+@@ -1343 +1642 @@
 -    log(`## 분배 시 안전 규칙 (1.9.35)`);
 +    log(`## 분배 시 안전 규칙`);
-@@ -1347 +1630 @@
+@@ -1347 +1646 @@
 -    log(`  - 같은 파일 동시 쓰기는 last-writer-wins 위험 (1.9.34 검증)`);
 +    log(`  - 같은 파일 동시 쓰기는 last-writer-wins 위험`);
-@@ -1358,0 +1642,6 @@
+@@ -1358,0 +1658,6 @@
 +    const benchPin = _pinStateFor(arg('--id', null));
 +    if (!benchPin.ok) { failJson(has('--json'), benchPin.code, benchPin.error); return; }
 +    if (arg('--model', null) || benchPin.state.pin) {
 +      failJson(has('--json'), 'model_pin_unsupported_path', 'agents bench runs provider default models and cannot carry a specified model; nothing was run');
 +      return;
 +    }
-@@ -1412 +1701 @@
+@@ -1412 +1717 @@
 -    log(`# leerness agents bench (1.9.36)`);
 +    log(`# leerness agents bench`);
-@@ -1714 +2003 @@
+@@ -1714 +2019 @@
 -module.exports = { agentsCmd, _benchLaunchSpec, _parseAgentPositional, _findAgentAction };
 +module.exports = { agentsCmd, _benchLaunchSpec, _parseAgentPositional, _findAgentAction, _singletonFlagIssue };
 diff --git a/lib/audit.js b/lib/audit.js

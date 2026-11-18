@@ -320,6 +320,30 @@ test('one-shot role selection inherits and records only that role-specific pin',
     && start.event === 'execution.started' && start.requestedRole === 'reviewer'));
 }));
 
+test('manual recovery closes the reserved scope and replays the same terminal once', () => withProject('recover-role', async (dir, s) => {
+  const pin = require('../lib/model-pin');
+  for (const role of ['reviewer', 'actor']) {
+    const id = 'T-recover-' + role;
+    const executor = { provider: 'ollama', model: 'model-' + role };
+    pin.ensurePin(dir, { taskId: id, scope: pin.scopeOfRole(role), ...executor, request: 'fixture request' });
+    const start = pin.reserveAttempt(dir, { taskId: id, role, executor, request: 'fixture request' });
+    const close = extra => record(dir, s, 'failed', id, start.attemptId, executor.provider, executor.model, extra);
+    const first = await close([]);
+    assert.strictEqual(first.status, 0, first.text);
+    const state = pin.pinState(ledger(dir), id, pin.scopeOfRole(role));
+    assert.strictEqual(state.open.size, 0);
+    for (const extra of [[], ...(role === 'reviewer' ? [['--target', start.event.eventId]] : [])]) {
+      const replay = await close(extra);
+      assert.strictEqual(replay.json.idempotent, true, replay.text);
+      assert.strictEqual(replay.json.event.eventId, first.json.event.eventId);
+    }
+    assert.strictEqual(count(dir, 'execution.failed', row => row.taskId === id), 1);
+    const next = await agent(dir, s, 'fixture request', id, executor.model, ['--role', role]);
+    assert.strictEqual(next.status, 0, next.text);
+    assert.strictEqual(sent(s, executor.model), 1);
+  }
+}));
+
 test('terminal replays compare caller provenance after resolving the original parent', () => withProject('replay-fields', async (dir, s)=> {
   const id = 'T-replay';
   await run(dir, s, ['agents', 'pin', 'review', '--id', id, '--role', 'reviewer', '--provider', 'live', '--model', 'live-model-1', '--json']);
