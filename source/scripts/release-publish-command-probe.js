@@ -34,11 +34,18 @@ const fresh = prefix => { const d = path.join(arena, prefix + (++seq)); fs.mkdir
 const stubDir = path.join(arena, 'stubs'); fs.mkdirSync(stubDir);
 const ghLog = path.join(arena, 'gh.log');
 const ghCalled = () => fs.existsSync(ghLog) && /release create/.test(fs.readFileSync(ghLog, "utf8"));
-const stubSrc = path.join(arena, 'stub.cs');
-fs.writeFileSync(stubSrc, 'using System; using System.IO; public class P { public static int Main(string[] a) { string log = Environment.GetEnvironmentVariable("PROBE_STUB_LOG"); if (!string.IsNullOrEmpty(log)) File.AppendAllText(log, string.Join(" ", a) + Environment.NewLine); return 1; } }');
-const built = cp.spawnSync('powershell.exe', ['-NoProfile', '-Command', `Add-Type -OutputAssembly '${path.join(stubDir, 'gh.exe')}' -OutputType ConsoleApplication -TypeDefinition (Get-Content -Raw '${stubSrc}')`], { encoding: 'utf8', timeout: 120000 });
-assert.strictEqual(built.status, 0, 'stub build failed: ' + built.stderr);
-fs.copyFileSync(path.join(stubDir, 'gh.exe'), path.join(stubDir, 'tar.exe'));
+if (process.platform === 'win32') {
+  const stubSrc = path.join(arena, 'stub.cs');
+  fs.writeFileSync(stubSrc, 'using System; using System.IO; public class P { public static int Main(string[] a) { string log = Environment.GetEnvironmentVariable("PROBE_STUB_LOG"); if (!string.IsNullOrEmpty(log)) File.AppendAllText(log, string.Join(" ", a) + Environment.NewLine); return 1; } }');
+  const built = cp.spawnSync('powershell.exe', ['-NoProfile', '-Command',
+    'Add-Type -OutputAssembly $env:PROBE_EXE -OutputType ConsoleApplication -TypeDefinition (Get-Content -LiteralPath $env:PROBE_SRC -Raw)'],
+    { encoding: 'utf8', timeout: 120000, env: { ...process.env, PROBE_EXE: path.join(stubDir, 'gh.exe'), PROBE_SRC: stubSrc } });
+  assert.strictEqual(built.status, 0, 'stub build failed: ' + built.stderr);
+  fs.copyFileSync(path.join(stubDir, 'gh.exe'), path.join(stubDir, 'tar.exe'));
+} else {
+  const stub = '#!/bin/sh\nprintf "%s\\n" "$*" >> "$PROBE_STUB_LOG"\nexit 1\n';
+  for (const name of ['gh', 'tar']) fs.writeFileSync(path.join(stubDir, name), stub, { mode: 0o755 });
+}
 const withStubs = () => { const p = stubDir + path.delimiter + (process.env.Path || process.env.PATH); return { PATH: p, Path: p, PROBE_STUB_LOG: ghLog }; };
 
 // a git project whose origin looks like github but is a local bare repository

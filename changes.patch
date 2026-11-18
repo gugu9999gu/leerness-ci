@@ -1,5 +1,5 @@
 diff --git a/bin/leerness.js b/bin/leerness.js
-index fb0c37b5..c09bdb01 100644
+index fb0c37b5..ffb1e7fd 100644
 --- a/bin/leerness.js
 +++ b/bin/leerness.js
 @@ -408 +408 @@
@@ -2417,7 +2417,10 @@ index fb0c37b5..c09bdb01 100644
 @@ -26941 +27020 @@
 -      else warn(`gh release 실패 — gh auth status 또는 수동 업로드 필요`);
 +      else fail(`gh release 실패 — gh auth status 또는 수동 업로드 필요`);
-@@ -27081 +27160,8 @@
+@@ -27069 +27148 @@
+-function benchmarkCmd(root) {
++async function benchmarkCmd(root) {
+@@ -27081 +27160,12 @@
 -    const results = keys.map(k => _runScenario(root, k));
 +    const arena = fs.mkdtempSync(path.join(os.tmpdir(), 'leerness-benchmark-'));
 +    let results;
@@ -2425,64 +2428,68 @@ index fb0c37b5..c09bdb01 100644
 +      const dir = path.join(arena, 'project'); fs.mkdirSync(dir);
 +      cp.spawnSync(process.execPath, [__filename, 'init', dir, '--yes', '--minimal', '--no-mcp', '--no-banner'],
 +        { encoding: 'utf8', timeout: 180000, env: { ...process.env, LEERNESS_INTERNAL: '1', LEERNESS_NO_PROMPT: '1' } });
-+      results = keys.map(k => _runScenario(dir, k));
-+    } finally { try { _removeSync(arena, { recursive: true, force: true }); } catch {} }
-@@ -27084 +27170 @@
++      results = withRuntimeWrites(dir, () => keys.map(k => _runScenario(dir, k)), { fresh: true });
++    } finally {
++      // The fixture admission ends before its project root is removed.
++      assertCurrentRuntimeWrite(arena);
++      await fs.promises.rm(arena, { recursive: true, force: true });
++    }
+@@ -27084 +27174 @@
 -    log(`# leerness benchmark --scenario (1.9.51)`);
 +    log(`# leerness benchmark --scenario`);
-@@ -27103 +27189 @@
+@@ -27103 +27193 @@
 -      log(`# leerness benchmark --measure (1.9.49)`);
 +      log(`# leerness benchmark --measure`);
-@@ -27163 +27249 @@
+@@ -27163 +27253 @@
 -  log(`# leerness benchmark (1.9.46)`);
 +  log(`# leerness benchmark`);
-@@ -27189,2 +27275,4 @@
+@@ -27189,2 +27279,4 @@
 -  const minOccurrence = parseInt(arg('--min', '3'), 10);
 -  const lookbackDays = parseInt(arg('--days', '30'), 10);
 +  const minOccurrence = Number(arg('--min', '3')), lookbackDays = Number(arg('--days', '30'));
 +  for (const [flag, value] of [['--min', minOccurrence], ['--days', lookbackDays]]) {
 +    if (!Number.isInteger(value) || value < 1) return failJson(has('--json'), 'invalid_arg', _uiLang(root) === 'en' ? `${flag} must be an integer >= 1 (got: ${arg(flag, '')})` : `${flag} 은 1 이상의 정수여야 합니다 (받은 값: ${arg(flag, '')})`);
 +  }
-@@ -27191,0 +27280 @@
+@@ -27191,0 +27284 @@
 +  const recent = d => { const t = Date.parse(String(d || '').slice(0, 10)); return !Number.isFinite(t) || t + 86400000 > cutoff; };
-@@ -27198 +27287 @@
+@@ -27198 +27291 @@
 -    const blocks = body.split(/^## \d{4}-\d{2}-\d{2}/m);
 +    const blocks = body.split(/^(?=## \d{4}-\d{2}-\d{2})/m);
-@@ -27199,0 +27289 @@
+@@ -27199,0 +27293 @@
 +      if (!recent((block.match(/^## (\d{4}-\d{2}-\d{2})/) || [])[1])) continue;
-@@ -27211,0 +27302 @@
+@@ -27211,0 +27306 @@
 +    if (!recent(row.updated)) continue;
-@@ -27241 +27332 @@
+@@ -27241 +27336 @@
 -        if (!h) continue;
 +        if (!h || !recent(h[1])) continue;
-@@ -27273,2 +27364,2 @@
+@@ -27273,2 +27368,2 @@
 -  log(`# leerness skill suggest (1.9.53)`);
 -  log(`반복 패턴 자동 감지 (최소 ${minOccurrence}회, ${lookbackDays}일 이내)`);
 +  log(`# leerness skill suggest`);
 +  log(`반복 패턴 자동 감지 (최소 ${minOccurrence}회, task-log/progress/제안 이력은 ${lookbackDays}일 이내 · 명령 사용 통계는 전체 기간)`);
-@@ -27289 +27380 @@
+@@ -27289 +27384 @@
 -  log(`   leerness skill learn <id> --capability "${candidates[0].keyword}" --note "1.9.53 auto-suggest"`);
 +  log(`   leerness skill learn <id> --capability "${candidates[0].keyword}" --note "auto-suggest"`);
-@@ -27404 +27495 @@
+@@ -27404 +27499 @@
 -  log(`# leerness skill search (1.9.90)`);
 +  log(`# leerness skill search`);
-@@ -27426 +27517,2 @@
+@@ -27426 +27521,2 @@
 -    log(`# leerness skill match (1.9.45/50)`);
 +    if (has('--json')) { log(JSON.stringify({ query, total: 0, matched: 0, top: [], reason: 'no installed skills' }, null, 2)); return; }
 +    log(`# leerness skill match`);
-@@ -27440,2 +27532 @@
+@@ -27440,2 +27536 @@
 -    log(`# leerness skill match (1.9.50, embedding)`);
 -    log(`Ollama: ${ollamaUrl} · model: ${model}`);
 +    if (!has('--json')) { log(`# leerness skill match (embedding)`); log(`Ollama: ${ollamaUrl} · model: ${model}`); }
-@@ -27472 +27563 @@
+@@ -27472 +27567 @@
 -  log(`# leerness skill match (1.9.45)`);
 +  log(`# leerness skill match`);
-@@ -27527 +27618 @@
+@@ -27527 +27622 @@
 -  log(`# leerness skill export-all (1.9.43)`);
 +  log(`# leerness skill export-all`);
-@@ -28107,0 +28199 @@
+@@ -28107,0 +28203 @@
 +      maxBuffer: 64 * 1024 * 1024,
-@@ -28261,0 +28354,9 @@
+@@ -28261,0 +28358,9 @@
 +        let pol;
 +        try { pol = _policyEnforce(targetPath, cliArgs.join(' '), _toolDef && _toolDef.requiredTier); }
 +        catch (error) {
@@ -2492,7 +2499,7 @@ index fb0c37b5..c09bdb01 100644
 +        if (!pol.allowed) {
 +          return send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `정책 차단(policy): ${pol.reason}` }], isError: true } });
 +        }
-@@ -28270,10 +28370,0 @@
+@@ -28270,10 +28374,0 @@
 -        try {
 -           
 -          const pol = _policyEnforce(targetPath, cliArgs.join(' '), _toolDef && _toolDef.requiredTier);
@@ -2503,20 +2510,20 @@ index fb0c37b5..c09bdb01 100644
 -         
 -         
 -         
-@@ -28417 +28508 @@
+@@ -28417 +28512 @@
 -  log(`# leerness env check (1.9.71)`);
 +  log(`# leerness env check`);
-@@ -28435 +28526,5 @@
+@@ -28435 +28530,5 @@
 -    log(`💡 자동 동기화: leerness env sync${d.inEnvOnly.length ? ' (.env.example에 누락 키 추가 — 값은 빈 문자열)' : ''}`);
 +    const t = (ko, en) => (_uiLang(root) === 'en' ? en : ko);
 +    log(exists(d.examplePath)
 +      ? `💡 자동 동기화: leerness env sync${d.inEnvOnly.length ? ' (.env.example에 누락 키 추가 — 값은 빈 문자열)' : ''}`
 +      : t('💡 .env.example 이 없습니다. env sync 와 audit --fix 는 이 파일을 만들지 않으니, 직접 만든 뒤(빈 파일도 됨) leerness env sync 를 실행하세요.',
 +        '💡 No .env.example yet. env sync and audit --fix do not create it; create it yourself (an empty file is fine), then run leerness env sync.'));
-@@ -28442 +28537 @@
+@@ -28442 +28541 @@
 -    log('# leerness env sync (1.9.71)');
 +    log('# leerness env sync');
-@@ -28450 +28545,6 @@
+@@ -28450 +28549,6 @@
 -    failJson(has('--json'), error.code || 'env_sync_failed', error.message, detail);
 +    const t = (ko, en) => (_uiLang(root) === 'en' ? en : ko);
 +    const message = error.code !== 'E_ENV_EXAMPLE_MISSING' ? error.message : exists(root)
@@ -2524,36 +2531,36 @@ index fb0c37b5..c09bdb01 100644
 +        '.env.example not found. env sync and init do not create it; create it yourself (an empty file is fine) with the variable names you want to share, then run env sync again.')
 +      : t(`프로젝트 경로가 없습니다: ${root}`, `Project directory not found: ${root}`);
 +    failJson(has('--json'), error.code || 'env_sync_failed', message, detail);
-@@ -28544 +28644 @@
+@@ -28544 +28648 @@
 -      encoding: process.env.LC_CTYPE || (process.platform === 'win32' ? 'cp949(default)' : 'UTF-8')
 +      encoding: process.env.LC_CTYPE || (process.platform === 'win32' ? 'unknown' : 'UTF-8')
-@@ -28547,2 +28647,2 @@
+@@ -28547,2 +28651,2 @@
 -      name: process.platform === 'win32' ? (process.env.ComSpec ? path.basename(process.env.ComSpec) : 'cmd.exe')
 -                                         : (process.env.SHELL ? path.basename(process.env.SHELL) : 'sh')
 +      name: process.env.SHELL ? path.basename(process.env.SHELL)
 +          : process.platform === 'win32' ? (process.env.POWERSHELL_DISTRIBUTION_CHANNEL ? 'pwsh' : 'unknown') : 'sh'
-@@ -28696 +28796 @@
+@@ -28696 +28800 @@
 -  log(`# leerness env detect (1.9.145)`);
 +  log(`# leerness env detect`);
-@@ -28709 +28809 @@
+@@ -28709 +28813 @@
 -    ok('첫 환경 캡처 — 다음 실행부터 변동을 자동 비교 (1.9.145)');
 +    ok('첫 환경 캡처 — 다음 실행부터 변동을 자동 비교');
-@@ -28783 +28883 @@
+@@ -28783 +28887 @@
 -  log(`# leerness permissions (1.9.146)`);
 +  log(`# leerness permissions`);
-@@ -28843 +28943 @@
+@@ -28843 +28947 @@
 -async function _ollamaChat(prompt, model) {
 +async function _ollamaGenerate(prompt, model) {
-@@ -28861 +28961 @@
+@@ -28861 +28965 @@
 -          try { const j = JSON.parse(data); resolve({ ok: res.statusCode === 200, response: j.response || '', model: mdl }); }
 +          try { const j = JSON.parse(data); resolve({ ok: res.statusCode === 200, response: j.response || '', ...(res.statusCode === 200 ? {} : { error: String(j.error || `HTTP ${res.statusCode}`) }), model: mdl }); }
-@@ -28879 +28979 @@
+@@ -28879 +28983 @@
 -      const req = lib.request({ hostname: u.hostname, port: u.port || 11434, path: u.pathname, method: 'GET', timeout: 4000 }, (res) => {
 +      const req = lib.request({ hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + (u.search || ''), method: 'GET', timeout: 4000 }, (res) => {
-@@ -28895,0 +28996,2 @@
+@@ -28895,0 +29000,2 @@
 +const _REPL_CHAT_PROVIDERS = ['ollama', 'claude', 'codex', 'agy', 'copilot'];
 +const _REPL_CLI_PROVIDERS = ['claude', 'codex', 'agy', 'copilot'];
-@@ -28946,5 +29048,7 @@
+@@ -28946,5 +29052,7 @@
 -    const id = `run-${ts}`;
 -    const fp = path.join(dir, `${id}.jsonl`);
 -    const line = JSON.stringify({ id, at: new Date().toISOString(), ...entry }) + '\n';
@@ -2566,102 +2573,102 @@ index fb0c37b5..c09bdb01 100644
 +      catch (error) { if (error.code !== 'EEXIST') throw error; }
 +    }
 +    return null;
-@@ -29018 +29122,2 @@
+@@ -29018 +29126,2 @@
 -  const first = String(cmdStr || '').trim().split(/\s+/)[0];
 +  const trimmed = String(cmdStr || '').trim();
 +  const first = trimmed === process.execPath ? 'node' : trimmed.split(/\s+/)[0];
-@@ -29101 +29206 @@
+@@ -29101 +29210 @@
 -  log('# leerness runs list (1.9.149)');
 +  log('# leerness runs list');
-@@ -29167 +29272 @@
+@@ -29167 +29276 @@
 -const { _PROVIDER_MODEL_CATALOG, _AGENT_ROLE_PROMPTS, ROLE_CATALOG, ROLE_REQUIREMENTS, _ROLE_ALIASES, pickCatalogModel } = require('../lib/role-catalog');
 +const { _PROVIDER_MODEL_CATALOG, _PROVIDER_CYCLE_ORDER, _AGENT_ROLE_PROMPTS, ROLE_CATALOG, ROLE_REQUIREMENTS, _ROLE_ALIASES, pickCatalogModel } = require('../lib/role-catalog');
-@@ -29250 +29355 @@
+@@ -29250 +29359 @@
 -function _guardRoleStore(json, action) {
 +function _guardRoleStore(json, action, root) {
-@@ -29254 +29359 @@
+@@ -29254 +29363 @@
 -      _emitRoleStoreFailure(json, error.roleStoreState, _uiLang(process.cwd()));
 +      _emitRoleStoreFailure(json, error.roleStoreState, _uiLang(root || process.cwd()));
-@@ -29383 +29488 @@
+@@ -29383 +29492 @@
 -    log(`# leerness roles catalog (1.9.270) — 알려진 역할 ${Object.keys(ROLE_CATALOG).length}종`);
 +    log(`# leerness roles catalog — 알려진 역할 ${Object.keys(ROLE_CATALOG).length}종`);
-@@ -29394 +29499 @@
+@@ -29394 +29503 @@
 -    const preflight = _guardRoleStore(json, () => _loadRolesForMutation(root));
 +    const preflight = _guardRoleStore(json, () => _loadRolesForMutation(root), root);
-@@ -29522 +29627 @@
+@@ -29522 +29631 @@
 -    const preflight = _guardRoleStore(json, () => has('--apply') ? _loadRolesForMutation(root) : _loadRoles(root));
 +    const preflight = _guardRoleStore(json, () => has('--apply') ? _loadRolesForMutation(root) : _loadRoles(root), root);
-@@ -29568 +29673 @@
+@@ -29568 +29677 @@
 -    log(`# leerness roles suggest (1.9.270) — 활성 에이전트 기반 최적 역할 배치`);
 +    log(`# leerness roles suggest — 활성 에이전트 기반 최적 역할 배치`);
-@@ -29581 +29686 @@
+@@ -29581 +29690 @@
 -    const loaded = _guardRoleStore(json, () => _loadRoleState(root));
 +    const loaded = _guardRoleStore(json, () => _loadRoleState(root), root);
-@@ -29646 +29751 @@
+@@ -29646 +29755 @@
 -    log(`# leerness roles verify (1.9.270/T-0172)`);
 +    log(`# leerness roles verify`);
-@@ -29661 +29766 @@
+@@ -29661 +29770 @@
 -  const loaded = _guardRoleStore(json, () => _loadRoleState(root));
 +  const loaded = _guardRoleStore(json, () => _loadRoleState(root), root);
-@@ -29670 +29775 @@
+@@ -29670 +29779 @@
 -  log(`# leerness roles (1.9.270) — 설정된 역할 ${entries.length}개`);
 +  log(`# leerness roles — 설정된 역할 ${entries.length}개`);
-@@ -29705 +29810 @@
+@@ -29705 +29814 @@
 -  log(cy(_t(`# leerness capabilities (1.9.272) — 권한·보안 표면 공개`, `# leerness capabilities — permission/security surface disclosure`)));
 +  log(cy(_t(`# leerness capabilities — 권한·보안 표면 공개`, `# leerness capabilities — permission/security surface disclosure`)));
-@@ -29771,0 +29877 @@
+@@ -29771,0 +29881 @@
 +  if (!['show', 'set', 'check'].includes(sub)) return failJson(json, 'unknown_subcommand', `알 수 없는 policy 하위명령: ${_lineSafe(sub).slice(0, 80)} — leerness policy show|set|check`);
-@@ -29803 +29909 @@
+@@ -29803 +29913 @@
 -  log(`# leerness policy (1.9.281, UR-0034) — 권한 등급`);
 +  log(`# leerness policy — 권한 등급`);
-@@ -30090,0 +30197 @@
+@@ -30090,0 +30201 @@
 +      if (!_requireInit(root, 'brief export')) return;
-@@ -30100,0 +30208 @@
+@@ -30100,0 +30212 @@
 +    if (!_requireInit(root, 'brief update')) return;
-@@ -30151 +30259 @@
+@@ -30151 +30263 @@
 -  log(cy(`# leerness context (1.9.292) — 에이전트 온보딩 컨텍스트 (v${VERSION})`));
 +  log(cy(`# leerness context — 에이전트 온보딩 컨텍스트 (v${VERSION})`));
-@@ -30176,0 +30285 @@
+@@ -30176,0 +30289 @@
 +  if (!['start', 'record', 'verify', 'handoff'].includes(sub)) return failJson(has('--json'), 'unknown_subcommand', `알 수 없는 state 하위명령: ${_lineSafe(sub).slice(0, 80)} — leerness state show|start|record|verify|handoff`);
-@@ -30361 +30470 @@
+@@ -30361 +30474 @@
 -  log(`# leerness state (1.9.278, UR-0032) — .leerness/ 구조화 상태`);
 +  log(`# leerness state — .leerness/ 구조화 상태`);
-@@ -30387,0 +30497,6 @@
+@@ -30387,0 +30501,6 @@
 +  const f = path.join(absRoot(root), ...String(rel || '.mcp.json').split('/'));
 +  let result;
 +  _withLock(f, () => { result = _mergeMcpJsonLocked(root, rel); });
 +  return result;
 +}
 +function _mergeMcpJsonLocked(root, rel) {
-@@ -30495,0 +30611 @@
+@@ -30495,0 +30615 @@
 +  if (!['build', 'show'].includes(sub)) return failJson(jsonMode, 'unknown_subcommand', `알 수 없는 glossary 하위명령: ${_lineSafe(sub).slice(0, 80)} — leerness glossary [build|show]`);
-@@ -30548 +30664 @@
+@@ -30548 +30668 @@
 -    log(`# leerness adapter (1.9.280, UR-0033) — 도구별 선택 설치`);
 +    log(`# leerness adapter — 도구별 선택 설치`);
-@@ -30568,0 +30685 @@
+@@ -30568,0 +30689 @@
 +    _withLock(gf, () => {
-@@ -30571,0 +30689 @@
+@@ -30571,0 +30693 @@
 +      if (dry) { log(s >= 0 && e >= s ? '[dry-run] codex 전역 leerness 블록 제거 예정 (실제 변경 0)' : '전역 블록 없음 — 변경 없음'); return; }
-@@ -30588,0 +30707 @@
+@@ -30588,0 +30711 @@
 +    if (dry) { log(`[dry-run] codex 전역 지침 설치 예정 — ${gf} (실제 변경 0)`); return; }
-@@ -30593,0 +30713 @@
+@@ -30593,0 +30717 @@
 +    });
-@@ -30719 +30839 @@
+@@ -30719 +30843 @@
 -  log(cy(`# leerness reuse-check (1.9.285, UR-0023) — 빌드 vs 재사용 결정 게이트`));
 +  log(cy(`# leerness reuse-check — 빌드 vs 재사용 결정 게이트`));
-@@ -30754 +30874 @@
+@@ -30754 +30878 @@
 -  for (const s of skills) { const re = new RegExp(String(s.id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'); uses[s.id] = (hist.match(re) || []).length; }
 +  for (const s of skills) { const re = new RegExp('(?<![\\w-])' + String(s.id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w-])', 'g'); uses[s.id] = (hist.match(re) || []).length; }
-@@ -30764 +30884 @@
+@@ -30764 +30888 @@
 -  log(cy(`# leerness skill impact (1.9.286, UR-0024) — 스킬 영향 경량 상관추적`));
 +  log(cy(`# leerness skill impact — 스킬 영향 경량 상관추적`));
-@@ -30804 +30924 @@
+@@ -30804 +30928 @@
 -                                  .filter(x => x.status.status === 'ready');
 +                                  .filter(x => x.status.status === 'ready' && _REPL_CHAT_PROVIDERS.includes(x.def.id));
-@@ -30864 +30984 @@
+@@ -30864 +30988 @@
 -      const readyCli = EXTERNAL_AGENTS.filter(a => a.id !== 'ollama')
 +      const readyCli = EXTERNAL_AGENTS.filter(a => _REPL_CLI_PROVIDERS.includes(a.id))
-@@ -30880,4 +31000,4 @@
+@@ -30880,4 +31004,4 @@
 -  log(C.yel('  │  ') + C.dim('Tab / Shift+Tab') + '   ' + C.dim('— provider / model 전환 (1.9.170)') + C.yel(' '.repeat(Math.max(1, 17)) + '│'));
 -  log(C.yel('  │  ') + C.dim(':review "<req>"') + '   ' + C.dim('— 무조건 구현 전 사전 검토 (1.9.176)') + C.yel(' '.repeat(Math.max(1, 13)) + '│'));
 -  log(C.yel('  │  ') + C.dim(':permissions <m>') + '  ' + C.dim('— 즉시 권한 변경 basic|extended|full (1.9.174)') + C.yel(' │'));
@@ -2670,72 +2677,72 @@ index fb0c37b5..c09bdb01 100644
 +  log(C.yel('  │  ') + C.dim(':review "<req>"') + '   ' + C.dim('— 무조건 구현 전 사전 검토') + C.yel(' '.repeat(Math.max(1, 13)) + '│'));
 +  log(C.yel('  │  ') + C.dim(':permissions <m>') + '  ' + C.dim('— 즉시 권한 변경 basic|extended|full') + C.yel(' │'));
 +  log(C.yel('  │  ') + C.dim(':stream on|off') + '    ' + C.dim('— 실시간 스트리밍 토글 (default ON)') + C.yel(' │'));
-@@ -30886 +31006 @@
+@@ -30886 +31010 @@
 -  log(C.bold(C.green('  ┌─ What\'s new (1.9.170~178) ─────────────────────────────────────────┐')));
 +  log(C.bold(C.green('  ┌─ What\'s new ─────────────────────────────────────────┐')));
-@@ -31039 +31159 @@
+@@ -31039 +31163 @@
 -        return [..._PROVIDER_CYCLE_ORDER, ...userIds];
 +        return [..._PROVIDER_CYCLE_ORDER.filter(id => _REPL_CHAT_PROVIDERS.includes(id)), ...userIds];
-@@ -31189 +31309 @@
+@@ -31189 +31313 @@
 -      log('    :model <name>         — 모델 변경 (1.9.155 모든 provider 지원, 예: :model claude-opus-4-7)');
 +      log('    :model <name>         — 모델 변경 (모든 provider 지원, 예: :model claude-opus-4-7)');
-@@ -31193,2 +31313,2 @@
+@@ -31193,2 +31317,2 @@
 -      log('    :stream on|off        — 🆕 1.9.170 실시간 스트리밍 토글 (추론중/diff/thinking 실시간 표시)');
 -      log('    :status               — 현재 세션 상태 자세히 (1.9.155)');
 +      log('    :stream on|off        — 실시간 스트리밍 토글 (추론중/diff/thinking 실시간 표시)');
 +      log('    :status               — 현재 세션 상태 자세히');
-@@ -31199 +31319 @@
+@@ -31199 +31323 @@
 -      log('    :permissions [mode]   — 🆕 1.9.174 현재 모드 표시 / 또는 즉시 변경 (basic/extended/full)');
 +      log('    :permissions [mode]   — 현재 모드 표시 / 또는 즉시 변경 (basic/extended/full)');
-@@ -31202 +31322 @@
+@@ -31202 +31326 @@
 -      log(C.bold('\n  🆕 1.9.170 키보드 단축키:'));
 +      log(C.bold('\n  키보드 단축키:'));
-@@ -31205 +31325 @@
+@@ -31205 +31329 @@
 -      log(C.bold('\n  Slash 명령 (1.9.150) — leerness 내부 명령 직접 호출:'));
 +      log(C.bold('\n  Slash 명령 — leerness 내부 명령 직접 호출:'));
-@@ -31210 +31330 @@
+@@ -31210 +31334 @@
 -      log(C.bold('\n  Memory Slash (1.9.161) — Memory Surface 즉시 조회:'));
 +      log(C.bold('\n  Memory Slash — Memory Surface 즉시 조회:'));
-@@ -31215 +31335 @@
+@@ -31215 +31339 @@
 -      log(C.bold('\n  🆕 Review Slash (1.9.176) — 사용자 요청 사전 검토:'));
 +      log(C.bold('\n  🆕 Review Slash — 사용자 요청 사전 검토:'));
-@@ -31217 +31337 @@
+@@ -31217 +31341 @@
 -      log(C.bold('\n  🆕 Bridge Slash (1.9.175) — REPL 안에서 즉시 Bridge 호출:'));
 +      log(C.bold('\n  🆕 Bridge Slash — REPL 안에서 즉시 Bridge 호출:'));
-@@ -31318 +31438 @@
+@@ -31318 +31442 @@
 -        log(C.green('  ↪ auto-fallback: ON (1.9.247) — 현재 provider transient 실패 (timeout/exit=null) 시 다음 ready agent 자동 전환 + 재시도'));
 +        log(C.green('  ↪ auto-fallback: ON — 현재 provider transient 실패 (timeout/exit=null) 시 다음 ready agent 자동 전환 + 재시도'));
-@@ -31373 +31493 @@
+@@ -31373 +31497 @@
 -      log(C.bold('\n  📊 REPL 세션 상태 (1.9.155)'));
 +      log(C.bold('\n  📊 REPL 세션 상태'));
-@@ -31404 +31524 @@
+@@ -31404 +31528 @@
 -          log(C.dim(`     :permissions full  로 즉시 변경 가능 (1.9.174)`));
 +          log(C.dim(`     :permissions full  로 즉시 변경 가능`));
-@@ -31503 +31623 @@
+@@ -31503 +31627 @@
 -      state.history.push({ role: 'user', content: input });
 +      state.history.push({ role: 'user', content: input, at: new Date().toISOString() });
-@@ -31512 +31632 @@
+@@ -31512 +31636 @@
 -        result = await _ollamaChat(finalPrompt, state.model);
 +        result = await _ollamaGenerate(finalPrompt, state.model);
-@@ -31528 +31648 @@
+@@ -31528 +31652 @@
 -        state.history.push({ role: 'assistant', content: result.response });
 +        state.history.push({ role: 'assistant', content: result.response, at: new Date().toISOString() });
-@@ -31560 +31680 @@
+@@ -31560 +31684 @@
 -            const others = EXTERNAL_AGENTS.filter(a => a.id !== state.provider)
 +            const others = EXTERNAL_AGENTS.filter(a => a.id !== state.provider && _REPL_CLI_PROVIDERS.includes(a.id))
-@@ -31565 +31685 @@
+@@ -31565 +31689 @@
 -              log(C.green(`  ↪ auto-fallback (1.9.247): ${state.provider} 실패 → ${next} 자동 전환 + 재시도 중...`));
 +              log(C.green(`  ↪ auto-fallback: ${state.provider} 실패 → ${next} 자동 전환 + 재시도 중...`));
-@@ -31578 +31698 @@
+@@ -31578 +31702 @@
 -                state.history.push({ role: 'assistant', content: retry.response });
 +                state.history.push({ role: 'assistant', content: retry.response, at: new Date().toISOString() });
-@@ -31597 +31717 @@
+@@ -31597 +31721 @@
 -          const others = EXTERNAL_AGENTS.filter(a => a.id !== state.provider)
 +          const others = EXTERNAL_AGENTS.filter(a => a.id !== state.provider && _REPL_CHAT_PROVIDERS.includes(a.id))
-@@ -31602 +31722 @@
+@@ -31602 +31726 @@
 -            if (!state.autoFallback) log(C.dim(`     💡 다음 실패 시 자동 전환: \`:fallback on\` (1.9.247 UR-0016 2단계)`));
 +            if (!state.autoFallback) log(C.dim(`     💡 다음 실패 시 자동 전환: \`:fallback on\``));
-@@ -31623 +31743,8 @@
+@@ -31623 +31747,8 @@
 -   
 +  const roleArg = arg('--role', 'actor');
 +  if (!Object.prototype.hasOwnProperty.call(_AGENT_ROLE_PROMPTS, roleArg)) {
@@ -2745,95 +2752,95 @@ index fb0c37b5..c09bdb01 100644
 +    return;
 +  }
 +
-@@ -31641,2 +31768,2 @@
+@@ -31641,2 +31772,2 @@
 -    log('  leerness agent "<task>" --role planner      # 계획만 (1.9.148)');
 -    log('  leerness agent "<task>" --role reviewer     # 비판적 검토 (1.9.148)');
 +    log('  leerness agent "<task>" --role planner      # 계획만');
 +    log('  leerness agent "<task>" --role reviewer     # 비판적 검토');
-@@ -31647,2 +31774,2 @@
+@@ -31647,2 +31778,2 @@
 -    log('REPL Slash 명령 (1.9.150): :verify / :audit / :handoff / :health  (sandboxed runCommandSafe)');
 -    log('REPL Multi-provider (1.9.153): ollama / claude / codex / agy / copilot — 활성 CLI 자동 감지');
 +    log('REPL Slash 명령: :verify / :audit / :handoff / :health  (sandboxed runCommandSafe)');
 +    log('REPL Multi-provider: ollama / claude / codex / agy / copilot — 활성 CLI 자동 감지');
-@@ -31660 +31787 @@
+@@ -31660 +31791 @@
 -  log(`# leerness agent (1.9.146/148)`);
 +  log(`# leerness agent`);
-@@ -31683 +31810 @@
+@@ -31683 +31814 @@
 -    r = await _ollamaChat(finalPrompt);
 +    r = await _ollamaGenerate(finalPrompt);
-@@ -31767 +31894 @@
+@@ -31767 +31898 @@
 -  log(`# leerness creds list (1.9.147)`);
 +  log(`# leerness creds list`);
-@@ -31773,0 +31901 @@
+@@ -31773,0 +31905 @@
 +    if (!meta || typeof meta !== 'object' || !Array.isArray(meta.envVars)) { warn(`  ${_lineSafe(name)}: 레코드 형상 무효 (envVars 없음) — credentials.local.json 확인`); continue; }
-@@ -31784,0 +31913 @@
+@@ -31784,0 +31917 @@
 +  if (service in Object.prototype) return fail(`쓸 수 없는 service 이름: ${JSON.stringify(_lineSafe(service))} (객체 내장 이름)`);
-@@ -31789 +31918,3 @@
+@@ -31789 +31922,3 @@
 -  const lifetime = parseInt(arg('--token-lifetime-hours', '0'), 10) || null;
 +  const lifetimeArg = arg('--token-lifetime-hours', null);
 +  if (lifetimeArg != null && !/^[1-9][0-9]*$/.test(String(lifetimeArg))) return fail(`--token-lifetime-hours 는 1 이상의 정수여야 합니다 (받음: ${JSON.stringify(_lineSafe(String(lifetimeArg)))})`);
 +  const lifetime = lifetimeArg != null ? parseInt(lifetimeArg, 10) : null;
-@@ -31829 +31960 @@
+@@ -31829 +31964 @@
 -  log(`# leerness creds check (1.9.147)`);
 +  log(`# leerness creds check`);
-@@ -31875 +32006 @@
+@@ -31875 +32010 @@
 -  log('# leerness incident list (1.9.147)');
 +  log('# leerness incident list');
-@@ -31906 +32037 @@
+@@ -31906 +32041 @@
 -  log(`# leerness incident handle (1.9.147)`);
 +  log(`# leerness incident handle`);
-@@ -31968 +32099 @@
+@@ -31968 +32103 @@
 -  log(`# leerness webhook serve (1.9.147)`);
 +  log(`# leerness webhook serve`);
-@@ -31986,3 +32117,3 @@
+@@ -31986,3 +32121,3 @@
 -            const sig = req.headers['x-leerness-signature'] || '';
 -            const expected = _hmacSha256(secret, body);
 -            if (sig !== expected) {
 +            const sig = Buffer.from(String(req.headers['x-leerness-signature'] || ''));
 +            const expected = Buffer.from(_hmacSha256(secret, body));
 +            if (sig.length !== expected.length || !require('crypto').timingSafeEqual(sig, expected)) {
-@@ -32009,2 +32140,3 @@
+@@ -32009,2 +32144,3 @@
 -  server.listen(port, () => {
 -    ok(`listening on port ${port}`);
 +  server.listen(port, arg('--host', '127.0.0.1'), () => {
 +    const bound = server.address();
 +    ok(`listening on ${bound.address}:${bound.port}`);
-@@ -32023 +32155 @@
+@@ -32023 +32159 @@
 -    log('# leerness deploy auto (1.9.147)');
 +    log('# leerness deploy auto');
-@@ -32050 +32182 @@
+@@ -32050 +32186 @@
 -  log(`# leerness deploy auto (1.9.147)`);
 +  log(`# leerness deploy auto`);
-@@ -32059,4 +32190,0 @@
+@@ -32059,4 +32194,0 @@
 -     
 -    j.services[service].lastRefreshed = new Date().toISOString();
 -    _writeCredentials(root, j);
 -     
-@@ -32079 +32207 @@
+@@ -32079 +32211 @@
 -  log(`# leerness usage stats (1.9.38)`);
 +  log(`# leerness usage stats`);
-@@ -32107 +32235 @@
+@@ -32107 +32239 @@
 -      log(`💡 drift 경고 ${stats.drift.skipped}회 스킵 → 1.9.38 학습: 임계 자동 완화 (--no-drift-check 빈도 ≥5)`);
 +      log(`💡 drift 경고 ${stats.drift.skipped}회 스킵 → 학습: 임계 자동 완화 (--no-drift-check 빈도 ≥5)`);
-@@ -32115 +32243 @@
+@@ -32115 +32247 @@
 -    log(`## 🔌 MCP tools/call 통계 (1.9.70) — last: ${stats.mcp.lastAt || '(none)'}`);
 +    log(`## 🔌 MCP tools/call 통계 — last: ${stats.mcp.lastAt || '(none)'}`);
-@@ -32192 +32320 @@
+@@ -32192 +32324 @@
 -      log(`# leerness task export (1.9.60)`);
 +      log(`# leerness task export`);
-@@ -32199 +32327 @@
+@@ -32199 +32331 @@
 -    log(`# leerness task export (1.9.60)`);
 +    log(`# leerness task export`);
-@@ -32393 +32521,2 @@
+@@ -32393 +32525,2 @@
 -  log(`# leerness task sync (1.9.38)`);
 +  if (has('--json')) { log(JSON.stringify({ ok: !conflicts.length && !ambiguous.length, imported, updated, total: todos.length, conflicts, ambiguous }, null, 2)); return; }
 +  log(`# leerness task sync`);
-@@ -32396 +32524,0 @@
+@@ -32396 +32528,0 @@
 -  if (has('--json')) log(JSON.stringify({ ok: !conflicts.length && !ambiguous.length, imported, updated, total: todos.length, conflicts, ambiguous }, null, 2));
-@@ -32459 +32587 @@
+@@ -32459 +32591 @@
 -  log(`# leerness contract verify (1.9.35)`);
 +  log(`# leerness contract verify`);
-@@ -32519,7 +32647,14 @@
+@@ -32519,7 +32651,14 @@
 -    let body = read(reusePath);
 -    for (const c of found) {
 -      if (body.includes(`| ${c.name} |`)) continue;  
@@ -2855,58 +2862,58 @@ index fb0c37b5..c09bdb01 100644
 +        storage.publishTextEdit(input, reusePath, headerIdx >= 0 ? lines.join('\n') : input.text + (input.text.endsWith('\n') ? '' : '\n') + rows.join('\n') + '\n');
 +      }
 +    });
-@@ -32532 +32667 @@
+@@ -32532 +32671 @@
 -  log(`# leerness reuse autodetect (1.9.35)`);
 +  log(`# leerness reuse autodetect`);
-@@ -32573 +32708 @@
+@@ -32573 +32712 @@
 -    log(`# leerness web check (1.9.165)`);
 +    log(`# leerness web check`);
-@@ -32597 +32732 @@
+@@ -32597 +32736 @@
 -    log(`# leerness web screenshot (1.9.165)`);
 +    log(`# leerness web screenshot`);
-@@ -32645 +32780 @@
+@@ -32645 +32784 @@
 -          log(`# leerness web extract (1.9.165)`);
 +          log(`# leerness web extract`);
-@@ -32701 +32836 @@
+@@ -32701 +32840 @@
 -    log(`# leerness pc check (1.9.166)`);
 +    log(`# leerness pc check`);
-@@ -32709 +32844 @@
+@@ -32709 +32848 @@
 -    log(`## 권한 (1.9.146)`);
 +    log(`## 권한`);
-@@ -32742 +32877,5 @@
+@@ -32742 +32881,5 @@
 -        })();
 +        })().catch((e) => {
 +          fail(`click 실패: ${e.message}`);
 +          try { _recordRun(root, { kind: 'pc_click', x, y, lib: r.name, durationMs: Date.now() - t0, ok: false, error: e.message }); } catch {}
 +          process.exitCode = 1;
 +        });
-@@ -32773 +32912,5 @@
+@@ -32773 +32916,5 @@
 -        })();
 +        })().catch((e) => {
 +          fail(`type 실패: ${e.message}`);
 +          try { _recordRun(root, { kind: 'pc_type', chars: text.length, lib: r.name, durationMs: Date.now() - t0, ok: false, error: e.message }); } catch {}
 +          process.exitCode = 1;
 +        });
-@@ -32806 +32949 @@
+@@ -32806 +32953 @@
 -          const img = await screen.capture(outPath);
 +          await screen.capture(outPath);
-@@ -32810 +32953,5 @@
+@@ -32810 +32957,5 @@
 -        })();
 +        })().catch((e) => {
 +          fail(`screenshot 실패: ${e.message}`);
 +          try { _recordRun(root, { kind: 'pc_screenshot', outPath, lib: r.name, durationMs: Date.now() - t0, ok: false, error: e.message }); } catch {}
 +          process.exitCode = 1;
 +        });
-@@ -32898 +33045 @@
+@@ -32898 +33049 @@
 -    log(`# leerness lsp check (1.9.167)`);
 +    log(`# leerness lsp check`);
-@@ -32933 +33080 @@
+@@ -32933 +33084 @@
 -      log(`# leerness lsp symbols (1.9.173 다국어)`);
 +      log(`# leerness lsp symbols (다국어)`);
-@@ -32972 +33119 @@
+@@ -32972 +33123 @@
 -      log(`# leerness lsp references (1.9.167)`);
 +      log(`# leerness lsp references`);
-@@ -33218,6 +33365,4 @@
+@@ -33218,6 +33369,4 @@
 -    try {
 -      const report = assessRuleArguments(assessmentArgv.slice(2));
 -      return log(jsonMode ? JSON.stringify(report, null, 2) : formatRuleAssessment(report));
@@ -2917,13 +2924,13 @@ index fb0c37b5..c09bdb01 100644
 +    try { report = assessRuleArguments(assessmentArgv.slice(2)); }
 +    catch { return failJson(jsonMode, 'rule_assessment_invalid', 'Invalid rule assessment input.'); }
 +    return log(jsonMode ? JSON.stringify(report, null, 2) : formatRuleAssessment(report));
-@@ -33413 +33558 @@
+@@ -33413 +33562 @@
 -  if (!_staleSkip.has(cmd) && !has('--json') && process.env.LEERNESS_NO_STALE_CHECK !== '1' && !has('--no-stale-check')) {
 +  if (!_staleSkip.has(cmd) && !(cmd === 'session' && args[1] === 'close') && !has('--json') && process.env.LEERNESS_NO_STALE_CHECK !== '1' && !has('--no-stale-check')) {
-@@ -33417 +33562 @@
+@@ -33417 +33566 @@
 -        : absRoot(arg('--path', args[1] && !args[1].startsWith('-') ? args[1] : process.cwd()));
 +        : (runtimeRoot || absRoot(arg('--path', args[1] && !args[1].startsWith('-') ? args[1] : process.cwd())));
-@@ -34614 +34759 @@
+@@ -34614 +34763 @@
 -  _detectOptimism, _scanCodeForPatterns,
 +  _detectOptimism, _scanCodeForPatterns, _portableDispatchTaskSafe,
 diff --git a/lib/agent-registry.js b/lib/agent-registry.js
@@ -4901,7 +4908,7 @@ index 2f3db9e1..b6547e06 100644
 -    await waitForOutput(webhook, /listening on port/);
 +    await waitForOutput(webhook, new RegExp(`listening on 127\\.0\\.0\\.1:${port}\\b`));
 diff --git a/scripts/e2e.js b/scripts/e2e.js
-index 99ed0e10..bc7e6abb 100644
+index 99ed0e10..65ff956b 100644
 --- a/scripts/e2e.js
 +++ b/scripts/e2e.js
 @@ -519 +519 @@
@@ -4950,14 +4957,24 @@ index 99ed0e10..bc7e6abb 100644
 @@ -5628 +5628 @@
 -  console.log(ok ? '✓ B(1.9.367) UR-0025: _mergeEnvLines 분리 — migrate 가 사용자 .env 값 key-aware 보존' : '✗ env merge 보존 실패');
 +  console.log(ok ? '✓ B(1.9.367) init/migrate 가 기존 .env 를 바이트 그대로 두고 .env.example 을 만들지 않음' : '✗ .env 보존/미생성 실패');
-@@ -8697 +8697 @@
+@@ -7899 +7899,5 @@
+-    const tabOk = html.includes('data-v="tech"') && !html.includes('data-v="toggles"') && !html.includes('tgFlip') && html.includes('leerness toggle set') && html.includes('supabase');
++    const snapshot = JSON.parse(/^var DATA = (.+);$/m.exec(html)[1]);
++    const stored = snapshot.docs.files.find(f => f.key === 'tech' && f.rel === '.leerness/tech-profile.json');
++    const profile = JSON.parse(stored.text);
++    const tabOk = html.includes('data-route="documents"') && profile.current.services.some(s => s.id === 'supabase')
++      && !profile.current.services.some(s => s.id === 'stripe') && profile.history.length === 1;
+@@ -7904 +7908 @@
+-  console.log(ok ? '✓ B(1.36.53) UR-0062: tech 언어·서비스 감지 + 마이그레이션 이력 diff + handoff 자동갱신 + 그래프 🛠 탭(스위치 제거·CLI 가이드)' : '✗ tech 프로필 실패');
++  console.log(ok ? '✓ B(1.36.53) UR-0062: tech 언어·서비스 감지 + 마이그레이션 이력 diff + handoff 자동갱신 + 그래프 문서의 기술 프로필' : '✗ tech 프로필 실패');
+@@ -8697 +8701 @@
 -    A3 = !/인증 확인 \(1\.36\.91\)/.test(R(['agents', 'list', '--path', d]).o) && listNoAuth
 +    A3 = !/## 인증 확인/.test(R(['agents', 'list', '--path', d]).o) && listNoAuth
-@@ -9076 +9076,2 @@
+@@ -9076 +9080,2 @@
 -    const wired = html.includes('data-v="docs"') && /"docs":\{/.test(html) && html.includes('세션 핸드오프');
 +    const wired = html.includes('data-route="documents">문서·설정') && /"docs":\{/.test(html)
 +      && html.includes('id="source-search"') && html.includes('.leerness/session-handoff.md');
-@@ -9212,0 +9214,8 @@
+@@ -9212,0 +9218,8 @@
 +    fs.writeFileSync(path.join(H, 'rules.md'), '# 사용자 규칙\n작업 전에 계획을 읽는다.\n');
 +    fs.writeFileSync(path.join(H, 'agent-roles.json'), JSON.stringify({ reviewer: 'test-reviewer' }));
 +    fs.writeFileSync(path.join(H, 'leerness-config.json'), JSON.stringify({
@@ -4966,7 +4983,7 @@ index 99ed0e10..bc7e6abb 100644
 +      LEERNESS_SKILL_DISCOVER_URL: { invalid: 'NONSCALAR_CONFIG_IGNORED' },
 +      CUSTOM_CONFIG_VALUE: 'UNSUPPORTED_CONFIG_IGNORED',
 +    }));
-@@ -9217 +9226,6 @@
+@@ -9217 +9230,6 @@
 -    const T2 = D2.files.length === 7 && D2.at === '2026-07-31T12:34:56.000Z'
 +    const T2 = D2.files.length === G.DOC_FILES.length && D2.at === '2026-07-31T12:34:56.000Z'
 +      && g('rules').group === '규칙·정책' && g('rules').text.includes('작업 전에 계획을 읽는다.')
@@ -4974,10 +4991,10 @@ index 99ed0e10..bc7e6abb 100644
 +      && JSON.parse(g('config').text).LEERNESS_ENABLE_CODEX === true
 +      && JSON.parse(g('config').text).LEERNESS_OLLAMA_MODEL === 'fixture-model'
 +      && !_blob.includes('UNSUPPORTED_CONFIG_IGNORED') && !_blob.includes('NONSCALAR_CONFIG_IGNORED')
-@@ -9472 +9486 @@
+@@ -9472 +9490 @@
 -      && S2.files.every(x => x.skipped || x.missing || x.guarded || Buffer.byteLength(x.text || '', 'utf8') >= 256)
 +      && S2.files.filter(x => x.truncated && !x.skipped).every(x => Buffer.byteLength(x.text || '', 'utf8') >= 256)
-@@ -9493,2 +9507,2 @@
+@@ -9493,2 +9511,2 @@
 -      && /'\+\(f\.chars\|\|0\)\+'\/'\+\(f\.charsTotal\|\|0\)\+'자\(/.test(html)
 -      && !/\(f\.text\|\|''\)\.length\+'\/'/.test(html);
 +      && /\(entry\.chars \|\| 0\) \+ '\/' \+ \(entry\.charsTotal \|\| 0\)/.test(html)
@@ -5642,7 +5659,7 @@ index 3dddb3c4..996b3b30 100644
 -check('status', ['status', tmp], { match: s => /present|존재|설치/.test(s) || true });
 +check('status', ['status', tmp], { match: s => /present|존재|설치/.test(s) });
 diff --git a/scripts/store-values-probe.js b/scripts/store-values-probe.js
-index f6dbfd99..ec0d3152 100644
+index f6dbfd99..0c107e5d 100644
 --- a/scripts/store-values-probe.js
 +++ b/scripts/store-values-probe.js
 @@ -267 +267 @@
@@ -5651,6 +5668,15 @@ index f6dbfd99..ec0d3152 100644
 @@ -272 +272 @@
 -  assert.ok(/보안 사전 점검 \(1\.9\.98\): 통과/.test(passedCheck), passedCheck);
 +  assert.ok(/보안 사전 점검: 통과/.test(passedCheck), passedCheck);
+@@ -346 +346,2 @@
+-  must(run(dir, ['graph', '--html', '--path', dir]), 'graph --html');
++  const graph = json(run(dir, ['graph', '--html', '--json', '--path', dir]), 'graph --html');
++  assert.strictEqual(graph.counts.skill, 4, 'each skill must have a distinct graph node');
+@@ -348,2 +349,2 @@
+-  assert.ok(html.includes('skill:g-one') && html.includes('skill:g-two'), 'both skill nodes');
+-  assert.strictEqual((html.match(/"id":"skill:/g) || []).length, 4, 'one graph node per skill');
++  const snapshot = JSON.parse(/^var DATA = (.+);$/m.exec(html)[1]);
++  assert.deepStrictEqual(snapshot.roadmap.skills.map(s => s.name).sort(), ['g-nl', 'g-one', 'g-sp', 'g-two']);
 diff --git a/scripts/task-review-assessment-probe.js b/scripts/task-review-assessment-probe.js
 index c81640b4..4cb6fbb9 100644
 --- a/scripts/task-review-assessment-probe.js
