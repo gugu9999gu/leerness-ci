@@ -8,7 +8,8 @@ const env = { ...process.env, LEERNESS_INTERNAL: '1', LEERNESS_OFFLINE: '1', LEE
 for (const key of ['HOME', 'USERPROFILE', 'LOCALAPPDATA', 'APPDATA']) { env[key] = path.join(arena, 'env-' + key.toLowerCase()); fs.mkdirSync(env[key]); }
 for (const key of Object.keys(env)) if (/^LEERNESS_ENABLE_|^LC_CTYPE$|^SHELL$/.test(key)) delete env[key];
 let passed = 0, failed = 0, seq = 0;
-const test = (name, fn) => { if (process.env.PROBE_ONLY && !new RegExp(process.env.PROBE_ONLY).test(name)) return; try { fn(); passed++; console.log('PASS ' + name); } catch (e) { failed++; console.error('FAIL ' + name + ': ' + (e && e.stack || e)); } };
+const cases = [];
+const test = (name, fn) => cases.push({ name, fn });
 const spawn = (dir, args, extraEnv = {}, input) => cp.spawnSync(process.execPath, [CLI, ...args], {
   cwd: dir, encoding: 'utf8', timeout: 180000, windowsHide: true, env: { ...env, ...extraEnv }, input });
 const run = (dir, args, extraEnv, input) => spawn(dir, [...args, '--path', dir], extraEnv, input);
@@ -46,9 +47,13 @@ const inChild = (names, body, extraEnv = {}, cwd = arena) => {
   assert.ok(line, show(r));
   return JSON.parse(line.slice(7));
 };
-const sleep = ms => cp.execFileSync(process.execPath, ['-e', `setTimeout(()=>{},${ms})`]);
-const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
-const waitUntil = (cond, ms) => { const end = Date.now() + ms; while (!cond() && Date.now() < end) sleep(200); return cond(); };
+const delay = require('node:timers/promises').setTimeout;
+function childExit(child) {
+  return new Promise(resolve => {
+    child.once('error', error => resolve(error.message));
+    child.once('close', (code, signal) => resolve(signal || code));
+  });
+}
 const feeder = path.join(arena, 'feeder.cjs');
 fs.writeFileSync(feeder, [
   "const cp = require('child_process'), fs = require('fs');",
@@ -70,9 +75,10 @@ const replSession = (P, steps, extraEnv = {}) => {
   const script = path.join(arena, 'repl' + seq + '.cjs');
   fs.writeFileSync(script, "module.exports = async () => { await global.core._agentRepl(process.argv[5], {}); return null; };");
   const cfg = { out, cwd: P, steps, args: [driver, CLI, '["_agentRepl"]', script, P] };
-  const runner = cp.spawn(process.execPath, [feeder, JSON.stringify(cfg)], { cwd: P, windowsHide: true, stdio: 'ignore',
+  const runner = cp.spawnSync(process.execPath, [feeder, JSON.stringify(cfg)], { cwd: P, timeout: 400000, windowsHide: true, stdio: 'ignore',
     env: { ...env, LEERNESS_OLLAMA_BASE_URL: 'http://127.0.0.1:9', ...extraEnv } });
-  try { waitUntil(() => !alive(runner.pid), 400000); } finally { try { runner.kill(); } catch {} }
+  assert.ifError(runner.error);
+  assert.strictEqual(runner.status, 0, 'REPL input feeder exited with ' + (runner.signal || runner.status));
   return fs.readFileSync(out, 'utf8');
 };
 
@@ -114,7 +120,7 @@ test('81 model list and generate use the same default port for the same base URL
   assert.ok(res[0].path.includes('token=abc'), JSON.stringify(res));
 });
 
-test('84 concurrent adapter MCP merge does not lose a competing write to .mcp.json', () => {
+test('84 concurrent adapter MCP merge does not lose a competing write to .mcp.json', async () => {
   const P = project();
   const mcp = path.join(P, '.mcp.json');
   fs.writeFileSync(mcp, JSON.stringify({ mcpServers: { first: { command: 'x' } } }, null, 2) + '\n');
@@ -129,15 +135,24 @@ test('84 concurrent adapter MCP merge does not lose a competing write to .mcp.js
       j.mcpServers.second = { command: 'y' }; fs.writeFileSync(mcp, JSON.stringify(j, null, 2) + '\\n'); resolve();
     }));
     return true; };`);
-  const holder = cp.spawn(process.execPath, [driver, CLI, '["_withLock"]', script], { cwd: arena, env, windowsHide: true, stdio: 'ignore' });
-  let merger = null;
+  const holder = cp.spawn(process.execPath, [driver, CLI, '["_withLock"]', script],
+    { cwd: arena, env, windowsHide: true, stdio: 'ignore', timeout: 150000 });
+  const holderDone = childExit(holder);
+  let merger;
   try {
-    assert.ok(waitUntil(() => fs.existsSync(ready), 90000), 'holder did not start');
-    merger = cp.spawn(process.execPath, [CLI, 'adapter', 'claude', '--path', P], { cwd: P, env, windowsHide: true, stdio: 'ignore' });
-    waitUntil(() => !alive(merger.pid), 12000);
+    const deadline = Date.now() + 90000;
+    while (!fs.existsSync(ready) && holder.exitCode === null && Date.now() < deadline) await delay(50);
+    assert.ok(fs.existsSync(ready), 'holder did not acquire the lock');
+    merger = cp.spawn(process.execPath, [CLI, 'adapter', 'claude', '--path', P],
+      { cwd: P, env, windowsHide: true, stdio: 'ignore', timeout: 120000 });
+    const mergerDone = childExit(merger);
+    await Promise.race([mergerDone, delay(12000, null, { ref: false })]);
     fs.writeFileSync(go, '1');
-    assert.ok(waitUntil(() => !alive(merger.pid) && !alive(holder.pid), 120000), 'processes did not finish');
-  } finally { try { holder.kill(); } catch {} try { merger && merger.kill(); } catch {} }
+    assert.deepStrictEqual(await Promise.all([holderDone, mergerDone]), [0, 0], 'both writers must exit successfully');
+  } finally {
+    holder.kill();
+    if (merger) merger.kill();
+  }
   const j = JSON.parse(fs.readFileSync(mcp, 'utf8'));
   assert.ok(j.mcpServers.second && j.mcpServers.leerness && j.mcpServers.first, JSON.stringify(j));
 });
@@ -304,5 +319,20 @@ test('101c rule assess does not report an internal formatter failure as invalid 
   assert.ok(/Invalid rule assessment input/.test(bad.stdout + bad.stderr), show(bad));
 });
 
-console.log(`\n${passed} passed, ${failed} failed`);
-process.exitCode = failed ? 1 : 0;
+async function main() {
+  const filter = process.env.PROBE_ONLY && new RegExp(process.env.PROBE_ONLY);
+  for (const { name, fn } of cases) {
+    if (filter && !filter.test(name)) continue;
+    try {
+      await fn();
+      passed++;
+      console.log('PASS ' + name);
+    } catch (error) {
+      failed++;
+      console.error('FAIL ' + name + ': ' + (error.stack || error));
+    }
+  }
+  console.log('\n' + passed + ' passed, ' + failed + ' failed');
+  process.exitCode = failed ? 1 : 0;
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

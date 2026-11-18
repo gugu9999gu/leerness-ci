@@ -5663,7 +5663,7 @@ index a54878a2..243cf97e 100644
 @@ -187,0 +187 @@
 +  if (generator.includes("'_apps'")) offenders.push('reads-sibling-directory-outside-project');
 diff --git a/scripts/release-runtime-probe.js b/scripts/release-runtime-probe.js
-index e80e7a32..33e85a77 100644
+index e80e7a32..0fbe64da 100644
 --- a/scripts/release-runtime-probe.js
 +++ b/scripts/release-runtime-probe.js
 @@ -405,0 +406,15 @@
@@ -5682,6 +5682,12 @@ index e80e7a32..33e85a77 100644
 +    failures.push(`leerness-config.json 은 문서에 있는 비시크릿 LEERNESS_* 키만 환경변수로 올려야 함: ${JSON.stringify({ status: configLoaderChild.status, out: String(configLoaderChild.stdout || '').slice(0, 300), err: String(configLoaderChild.stderr || '').slice(0, 300) })}`);
 +  }
 +
+@@ -1179,4 +1194 @@
+-  const benchmarkStart = cliSource.indexOf('async function _benchmarkMeasure');
+-  const benchmarkEnd = cliSource.indexOf('\nfunction benchmarkCmd', benchmarkStart);
+-  const benchmarkBlock = benchmarkStart >= 0 && benchmarkEnd > benchmarkStart
+-    ? cliSource.slice(benchmarkStart, benchmarkEnd) : '';
++  const benchmarkBlock = cliSource.match(/^async function _benchmarkMeasure\([\s\S]*?(?=^(?:async )?function \w+\()/m)?.[0] || '';
 diff --git a/scripts/reminder-text-probe.js b/scripts/reminder-text-probe.js
 index 957c9689..d16d9cc4 100644
 --- a/scripts/reminder-text-probe.js
