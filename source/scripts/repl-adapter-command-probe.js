@@ -189,12 +189,10 @@ test('86 unknown subcommands of glossary, state and policy are rejected without 
 
 test('88 env detect does not report an unmeasured Windows encoding or shell', () => {
   const P = project();
-  let r;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    r = run(P, ['env', 'detect', '--json'], { SHELL: '/usr/bin/bash', ComSpec: 'C:\\Windows\\System32\\cmd.exe',
-      PATH: process.env.PATH.split(path.delimiter).filter(p => !/[\\/](\.cargo|rustup)/i.test(p)).join(path.delimiter) });
-    if (r.status === 0) break;
-  }
+  const tools = require('./e2e-env-tools').create(P, env);
+  const r = run(P, ['env', 'detect', '--json'], {
+    ...tools.env, SHELL: '/usr/bin/bash', ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+  });
   assert.strictEqual(r.status, 0, show(r));
   const j = JSON.parse(r.stdout);
   const snap = j.snapshot || j;
