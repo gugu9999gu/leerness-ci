@@ -1,5 +1,5 @@
 diff --git a/bin/leerness.js b/bin/leerness.js
-index fb0c37b5..90bfee96 100644
+index fb0c37b5..7459a06a 100644
 --- a/bin/leerness.js
 +++ b/bin/leerness.js
 @@ -408 +408 @@
@@ -1391,6 +1391,9 @@ index fb0c37b5..90bfee96 100644
 -      { cmd: 'sessions [path] [--json]', desc: '이 프로젝트에 남은 **다른 AI 세션 기록** (1.36.129, P-0016 P1) — 기록만 보여 주고 프로세스 상태는 판정하지 않는다', descEn: 'session records left by other AI sessions in this project (1.36.129, P-0016 P1) — records only; process state is never judged' },
 +      { cmd: 'wakeup-interval get|set|auto|history|record', desc: 'adaptive wakeup', descEn: 'adaptive wakeup interval' },
 +      { cmd: 'sessions [path] [--json]', desc: '이 프로젝트에 남은 **다른 AI 세션 기록** — 기록만 보여 주고 프로세스 상태는 판정하지 않는다', descEn: 'session records left by other AI sessions in this project — records only; process state is never judged' },
+@@ -11948 +11986 @@
+-      { cmd: 'loop open|round|decide|status [--json]', desc: '같은 주제의 반복 검수·수리 회차 기록 (기본 한도 3회) — 모든 worktree 공유, STOP 은 exit 3', descEn: 'records repeated review or fix rounds on one subject (default cap 3); shared by all worktrees; STOP exits 3' },
++      { cmd: 'loop open|round|decide|status [--json]', desc: '같은 주제의 반복 검수·수리 회차 기록 (기본 한도 10회) — 모든 worktree 공유, STOP 은 exit 3', descEn: 'records repeated review or fix rounds on one subject (default cap 10); shared by all worktrees; STOP exits 3' },
 @@ -11950,9 +11988,9 @@
 -      { cmd: 'parent detect|adopt [--select <kinds>] [--apply]', desc: '상위 leerness 부모 탐지 + 자산 게이트형 adopt (1.30.2~3)', descEn: 'detect a parent leerness above + gated asset adoption (1.30.2~3)' },
 -      { cmd: 'intent classify|expand|domains "<request>"', desc: '의도 파악 + scope (1.9.213)', descEn: 'infer intent + scope (1.9.213)' },
@@ -2425,7 +2428,10 @@ index fb0c37b5..90bfee96 100644
 @@ -26941 +27023 @@
 -      else warn(`gh release 실패 — gh auth status 또는 수동 업로드 필요`);
 +      else fail(`gh release 실패 — gh auth status 또는 수동 업로드 필요`);
-@@ -27081 +27163,8 @@
+@@ -27069 +27151 @@
+-function benchmarkCmd(root) {
++async function benchmarkCmd(root) {
+@@ -27081 +27163,12 @@
 -    const results = keys.map(k => _runScenario(root, k));
 +    const arena = fs.mkdtempSync(path.join(os.tmpdir(), 'leerness-benchmark-'));
 +    let results;
@@ -2433,76 +2439,80 @@ index fb0c37b5..90bfee96 100644
 +      const dir = path.join(arena, 'project'); fs.mkdirSync(dir);
 +      cp.spawnSync(process.execPath, [__filename, 'init', dir, '--yes', '--minimal', '--no-mcp', '--no-banner'],
 +        { encoding: 'utf8', timeout: 180000, env: { ...process.env, LEERNESS_INTERNAL: '1', LEERNESS_NO_PROMPT: '1' } });
-+      results = keys.map(k => _runScenario(dir, k));
-+    } finally { try { _removeSync(arena, { recursive: true, force: true }); } catch {} }
-@@ -27084 +27173 @@
++      results = withRuntimeWrites(dir, () => keys.map(k => _runScenario(dir, k)), { fresh: true });
++    } finally {
++      // The fixture admission ends before its project root is removed.
++      assertCurrentRuntimeWrite(arena);
++      await fs.promises.rm(arena, { recursive: true, force: true });
++    }
+@@ -27084 +27177 @@
 -    log(`# leerness benchmark --scenario (1.9.51)`);
 +    log(`# leerness benchmark --scenario`);
-@@ -27103 +27192 @@
+@@ -27103 +27196 @@
 -      log(`# leerness benchmark --measure (1.9.49)`);
 +      log(`# leerness benchmark --measure`);
-@@ -27163 +27252 @@
+@@ -27163 +27256 @@
 -  log(`# leerness benchmark (1.9.46)`);
 +  log(`# leerness benchmark`);
-@@ -27189,2 +27278,4 @@
+@@ -27189,2 +27282,4 @@
 -  const minOccurrence = parseInt(arg('--min', '3'), 10);
 -  const lookbackDays = parseInt(arg('--days', '30'), 10);
 +  const minOccurrence = Number(arg('--min', '3')), lookbackDays = Number(arg('--days', '30'));
 +  for (const [flag, value] of [['--min', minOccurrence], ['--days', lookbackDays]]) {
 +    if (!Number.isInteger(value) || value < 1) return failJson(has('--json'), 'invalid_arg', _uiLang(root) === 'en' ? `${flag} must be an integer >= 1 (got: ${arg(flag, '')})` : `${flag} 은 1 이상의 정수여야 합니다 (받은 값: ${arg(flag, '')})`);
 +  }
-@@ -27191,0 +27283 @@
+@@ -27191,0 +27287 @@
 +  const recent = d => { const t = Date.parse(String(d || '').slice(0, 10)); return !Number.isFinite(t) || t + 86400000 > cutoff; };
-@@ -27198 +27290 @@
+@@ -27198 +27294 @@
 -    const blocks = body.split(/^## \d{4}-\d{2}-\d{2}/m);
 +    const blocks = body.split(/^(?=## \d{4}-\d{2}-\d{2})/m);
-@@ -27199,0 +27292 @@
+@@ -27199,0 +27296 @@
 +      if (!recent((block.match(/^## (\d{4}-\d{2}-\d{2})/) || [])[1])) continue;
-@@ -27211,0 +27305 @@
+@@ -27211,0 +27309 @@
 +    if (!recent(row.updated)) continue;
-@@ -27241 +27335 @@
+@@ -27241 +27339 @@
 -        if (!h) continue;
 +        if (!h || !recent(h[1])) continue;
-@@ -27273,2 +27367,2 @@
+@@ -27273,2 +27371,2 @@
 -  log(`# leerness skill suggest (1.9.53)`);
 -  log(`반복 패턴 자동 감지 (최소 ${minOccurrence}회, ${lookbackDays}일 이내)`);
 +  log(`# leerness skill suggest`);
 +  log(`반복 패턴 자동 감지 (최소 ${minOccurrence}회, task-log/progress/제안 이력은 ${lookbackDays}일 이내 · 명령 사용 통계는 전체 기간)`);
-@@ -27289 +27383 @@
+@@ -27289 +27387 @@
 -  log(`   leerness skill learn <id> --capability "${candidates[0].keyword}" --note "1.9.53 auto-suggest"`);
 +  log(`   leerness skill learn <id> --capability "${candidates[0].keyword}" --note "auto-suggest"`);
-@@ -27404 +27498 @@
+@@ -27404 +27502 @@
 -  log(`# leerness skill search (1.9.90)`);
 +  log(`# leerness skill search`);
-@@ -27426 +27520,2 @@
+@@ -27426 +27524,2 @@
 -    log(`# leerness skill match (1.9.45/50)`);
 +    if (has('--json')) { log(JSON.stringify({ query, total: 0, matched: 0, top: [], reason: 'no installed skills' }, null, 2)); return; }
 +    log(`# leerness skill match`);
-@@ -27440,2 +27535 @@
+@@ -27440,2 +27539 @@
 -    log(`# leerness skill match (1.9.50, embedding)`);
 -    log(`Ollama: ${ollamaUrl} · model: ${model}`);
 +    if (!has('--json')) { log(`# leerness skill match (embedding)`); log(`Ollama: ${ollamaUrl} · model: ${model}`); }
-@@ -27472 +27566 @@
+@@ -27472 +27570 @@
 -  log(`# leerness skill match (1.9.45)`);
 +  log(`# leerness skill match`);
-@@ -27527 +27621 @@
+@@ -27527 +27625 @@
 -  log(`# leerness skill export-all (1.9.43)`);
 +  log(`# leerness skill export-all`);
-@@ -27595,0 +27690 @@
+@@ -27595,0 +27694 @@
 +            if (args.taskId !== undefined) cliArgs.push('--id', typeof args.taskId === 'string' ? args.taskId : '');
-@@ -27612 +27707 @@
+@@ -27612 +27711 @@
 -            if (args.taskId) cliArgs.push('--id', String(args.taskId));
 +            if (args.taskId !== undefined) cliArgs.push('--id', typeof args.taskId === 'string' ? args.taskId : '');
-@@ -27654,2 +27749,2 @@
+@@ -27654,2 +27753,2 @@
 -            if (args.taskId) cliArgs.push('--task', String(args.taskId));
 -            if (args.attemptId) cliArgs.push('--id', String(args.attemptId));
 +            if (args.taskId !== undefined) cliArgs.push('--task', typeof args.taskId === 'string' ? args.taskId : '');
 +            if (args.attemptId !== undefined) cliArgs.push('--id', typeof args.attemptId === 'string' ? args.attemptId : '');
-@@ -27656,0 +27752 @@
+@@ -27656,0 +27756 @@
 +            if (args.dispatchEventId) cliArgs.push('--dispatch-id', String(args.dispatchEventId));
-@@ -28107,0 +28204 @@
+@@ -28107,0 +28208 @@
 +      maxBuffer: 64 * 1024 * 1024,
-@@ -28261,0 +28359,9 @@
+@@ -28261,0 +28363,9 @@
 +        let pol;
 +        try { pol = _policyEnforce(targetPath, cliArgs.join(' '), _toolDef && _toolDef.requiredTier); }
 +        catch (error) {
@@ -2512,7 +2522,7 @@ index fb0c37b5..90bfee96 100644
 +        if (!pol.allowed) {
 +          return send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `정책 차단(policy): ${pol.reason}` }], isError: true } });
 +        }
-@@ -28270,10 +28375,0 @@
+@@ -28270,10 +28379,0 @@
 -        try {
 -           
 -          const pol = _policyEnforce(targetPath, cliArgs.join(' '), _toolDef && _toolDef.requiredTier);
@@ -2523,20 +2533,20 @@ index fb0c37b5..90bfee96 100644
 -         
 -         
 -         
-@@ -28417 +28513 @@
+@@ -28417 +28517 @@
 -  log(`# leerness env check (1.9.71)`);
 +  log(`# leerness env check`);
-@@ -28435 +28531,5 @@
+@@ -28435 +28535,5 @@
 -    log(`💡 자동 동기화: leerness env sync${d.inEnvOnly.length ? ' (.env.example에 누락 키 추가 — 값은 빈 문자열)' : ''}`);
 +    const t = (ko, en) => (_uiLang(root) === 'en' ? en : ko);
 +    log(exists(d.examplePath)
 +      ? `💡 자동 동기화: leerness env sync${d.inEnvOnly.length ? ' (.env.example에 누락 키 추가 — 값은 빈 문자열)' : ''}`
 +      : t('💡 .env.example 이 없습니다. env sync 와 audit --fix 는 이 파일을 만들지 않으니, 직접 만든 뒤(빈 파일도 됨) leerness env sync 를 실행하세요.',
 +        '💡 No .env.example yet. env sync and audit --fix do not create it; create it yourself (an empty file is fine), then run leerness env sync.'));
-@@ -28442 +28542 @@
+@@ -28442 +28546 @@
 -    log('# leerness env sync (1.9.71)');
 +    log('# leerness env sync');
-@@ -28450 +28550,6 @@
+@@ -28450 +28554,6 @@
 -    failJson(has('--json'), error.code || 'env_sync_failed', error.message, detail);
 +    const t = (ko, en) => (_uiLang(root) === 'en' ? en : ko);
 +    const message = error.code !== 'E_ENV_EXAMPLE_MISSING' ? error.message : exists(root)
@@ -2544,30 +2554,30 @@ index fb0c37b5..90bfee96 100644
 +        '.env.example not found. env sync and init do not create it; create it yourself (an empty file is fine) with the variable names you want to share, then run env sync again.')
 +      : t(`프로젝트 경로가 없습니다: ${root}`, `Project directory not found: ${root}`);
 +    failJson(has('--json'), error.code || 'env_sync_failed', message, detail);
-@@ -28544 +28649 @@
+@@ -28544 +28653 @@
 -      encoding: process.env.LC_CTYPE || (process.platform === 'win32' ? 'cp949(default)' : 'UTF-8')
 +      encoding: process.env.LC_CTYPE || (process.platform === 'win32' ? 'unknown' : 'UTF-8')
-@@ -28547,2 +28652,2 @@
+@@ -28547,2 +28656,2 @@
 -      name: process.platform === 'win32' ? (process.env.ComSpec ? path.basename(process.env.ComSpec) : 'cmd.exe')
 -                                         : (process.env.SHELL ? path.basename(process.env.SHELL) : 'sh')
 +      name: process.env.SHELL ? path.basename(process.env.SHELL)
 +          : process.platform === 'win32' ? (process.env.POWERSHELL_DISTRIBUTION_CHANNEL ? 'pwsh' : 'unknown') : 'sh'
-@@ -28696 +28801 @@
+@@ -28696 +28805 @@
 -  log(`# leerness env detect (1.9.145)`);
 +  log(`# leerness env detect`);
-@@ -28709 +28814 @@
+@@ -28709 +28818 @@
 -    ok('첫 환경 캡처 — 다음 실행부터 변동을 자동 비교 (1.9.145)');
 +    ok('첫 환경 캡처 — 다음 실행부터 변동을 자동 비교');
-@@ -28783 +28888 @@
+@@ -28783 +28892 @@
 -  log(`# leerness permissions (1.9.146)`);
 +  log(`# leerness permissions`);
-@@ -28843 +28948 @@
+@@ -28843 +28952 @@
 -async function _ollamaChat(prompt, model) {
 +async function _ollamaGenerate(prompt, model) {
-@@ -28861 +28966 @@
+@@ -28861 +28970 @@
 -          try { const j = JSON.parse(data); resolve({ ok: res.statusCode === 200, response: j.response || '', model: mdl }); }
 +          try { const j = JSON.parse(data); resolve({ ok: res.statusCode === 200, response: j.response || '', ...(res.statusCode === 200 ? {} : { error: String(j.error || `HTTP ${res.statusCode}`) }), model: mdl, reportedModel: typeof j.model === 'string' ? j.model : null }); }
-@@ -28870,0 +28976,10 @@
+@@ -28870,0 +28980,10 @@
 +function _ollamaSameModel(requested, reported) {
 +  if (!requested || !reported) return false;
 +  return reported === requested || (!String(requested).includes(':') && reported === `${requested}:latest`);
@@ -2578,13 +2588,13 @@ index fb0c37b5..90bfee96 100644
 +  return { ok: false, executed: true, model: requested, reportedModel: result.reportedModel || null,
 +    error: `model ${result.reportedModel ? 'mismatch' : 'unverified'}: requested ${requested}, provider reported ${result.reportedModel || 'nothing'}; the response was not used` };
 +}
-@@ -28879 +28994 @@
+@@ -28879 +28998 @@
 -      const req = lib.request({ hostname: u.hostname, port: u.port || 11434, path: u.pathname, method: 'GET', timeout: 4000 }, (res) => {
 +      const req = lib.request({ hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + (u.search || ''), method: 'GET', timeout: 4000 }, (res) => {
-@@ -28895,0 +29011,2 @@
+@@ -28895,0 +29015,2 @@
 +const _REPL_CHAT_PROVIDERS = ['ollama', 'claude', 'codex', 'agy', 'copilot'];
 +const _REPL_CLI_PROVIDERS = ['claude', 'codex', 'agy', 'copilot'];
-@@ -28946,5 +29063,7 @@
+@@ -28946,5 +29067,7 @@
 -    const id = `run-${ts}`;
 -    const fp = path.join(dir, `${id}.jsonl`);
 -    const line = JSON.stringify({ id, at: new Date().toISOString(), ...entry }) + '\n';
@@ -2597,96 +2607,96 @@ index fb0c37b5..90bfee96 100644
 +      catch (error) { if (error.code !== 'EEXIST') throw error; }
 +    }
 +    return null;
-@@ -29018 +29137,2 @@
+@@ -29018 +29141,2 @@
 -  const first = String(cmdStr || '').trim().split(/\s+/)[0];
 +  const trimmed = String(cmdStr || '').trim();
 +  const first = trimmed === process.execPath ? 'node' : trimmed.split(/\s+/)[0];
-@@ -29101 +29221 @@
+@@ -29101 +29225 @@
 -  log('# leerness runs list (1.9.149)');
 +  log('# leerness runs list');
-@@ -29167 +29287 @@
+@@ -29167 +29291 @@
 -const { _PROVIDER_MODEL_CATALOG, _AGENT_ROLE_PROMPTS, ROLE_CATALOG, ROLE_REQUIREMENTS, _ROLE_ALIASES, pickCatalogModel } = require('../lib/role-catalog');
 +const { _PROVIDER_MODEL_CATALOG, _PROVIDER_CYCLE_ORDER, _AGENT_ROLE_PROMPTS, ROLE_CATALOG, ROLE_REQUIREMENTS, _ROLE_ALIASES, pickCatalogModel } = require('../lib/role-catalog');
-@@ -29250 +29370 @@
+@@ -29250 +29374 @@
 -function _guardRoleStore(json, action) {
 +function _guardRoleStore(json, action, root) {
-@@ -29254 +29374 @@
+@@ -29254 +29378 @@
 -      _emitRoleStoreFailure(json, error.roleStoreState, _uiLang(process.cwd()));
 +      _emitRoleStoreFailure(json, error.roleStoreState, _uiLang(root || process.cwd()));
-@@ -29383 +29503 @@
+@@ -29383 +29507 @@
 -    log(`# leerness roles catalog (1.9.270) — 알려진 역할 ${Object.keys(ROLE_CATALOG).length}종`);
 +    log(`# leerness roles catalog — 알려진 역할 ${Object.keys(ROLE_CATALOG).length}종`);
-@@ -29394 +29514 @@
+@@ -29394 +29518 @@
 -    const preflight = _guardRoleStore(json, () => _loadRolesForMutation(root));
 +    const preflight = _guardRoleStore(json, () => _loadRolesForMutation(root), root);
-@@ -29522 +29642 @@
+@@ -29522 +29646 @@
 -    const preflight = _guardRoleStore(json, () => has('--apply') ? _loadRolesForMutation(root) : _loadRoles(root));
 +    const preflight = _guardRoleStore(json, () => has('--apply') ? _loadRolesForMutation(root) : _loadRoles(root), root);
-@@ -29568 +29688 @@
+@@ -29568 +29692 @@
 -    log(`# leerness roles suggest (1.9.270) — 활성 에이전트 기반 최적 역할 배치`);
 +    log(`# leerness roles suggest — 활성 에이전트 기반 최적 역할 배치`);
-@@ -29581 +29701 @@
+@@ -29581 +29705 @@
 -    const loaded = _guardRoleStore(json, () => _loadRoleState(root));
 +    const loaded = _guardRoleStore(json, () => _loadRoleState(root), root);
-@@ -29646 +29766 @@
+@@ -29646 +29770 @@
 -    log(`# leerness roles verify (1.9.270/T-0172)`);
 +    log(`# leerness roles verify`);
-@@ -29661 +29781 @@
+@@ -29661 +29785 @@
 -  const loaded = _guardRoleStore(json, () => _loadRoleState(root));
 +  const loaded = _guardRoleStore(json, () => _loadRoleState(root), root);
-@@ -29670 +29790 @@
+@@ -29670 +29794 @@
 -  log(`# leerness roles (1.9.270) — 설정된 역할 ${entries.length}개`);
 +  log(`# leerness roles — 설정된 역할 ${entries.length}개`);
-@@ -29705 +29825 @@
+@@ -29705 +29829 @@
 -  log(cy(_t(`# leerness capabilities (1.9.272) — 권한·보안 표면 공개`, `# leerness capabilities — permission/security surface disclosure`)));
 +  log(cy(_t(`# leerness capabilities — 권한·보안 표면 공개`, `# leerness capabilities — permission/security surface disclosure`)));
-@@ -29771,0 +29892 @@
+@@ -29771,0 +29896 @@
 +  if (!['show', 'set', 'check'].includes(sub)) return failJson(json, 'unknown_subcommand', `알 수 없는 policy 하위명령: ${_lineSafe(sub).slice(0, 80)} — leerness policy show|set|check`);
-@@ -29803 +29924 @@
+@@ -29803 +29928 @@
 -  log(`# leerness policy (1.9.281, UR-0034) — 권한 등급`);
 +  log(`# leerness policy — 권한 등급`);
-@@ -30090,0 +30212 @@
+@@ -30090,0 +30216 @@
 +      if (!_requireInit(root, 'brief export')) return;
-@@ -30100,0 +30223 @@
+@@ -30100,0 +30227 @@
 +    if (!_requireInit(root, 'brief update')) return;
-@@ -30151 +30274 @@
+@@ -30151 +30278 @@
 -  log(cy(`# leerness context (1.9.292) — 에이전트 온보딩 컨텍스트 (v${VERSION})`));
 +  log(cy(`# leerness context — 에이전트 온보딩 컨텍스트 (v${VERSION})`));
-@@ -30176,0 +30300 @@
+@@ -30176,0 +30304 @@
 +  if (!['start', 'record', 'verify', 'handoff'].includes(sub)) return failJson(has('--json'), 'unknown_subcommand', `알 수 없는 state 하위명령: ${_lineSafe(sub).slice(0, 80)} — leerness state show|start|record|verify|handoff`);
-@@ -30361 +30485 @@
+@@ -30361 +30489 @@
 -  log(`# leerness state (1.9.278, UR-0032) — .leerness/ 구조화 상태`);
 +  log(`# leerness state — .leerness/ 구조화 상태`);
-@@ -30387,0 +30512,6 @@
+@@ -30387,0 +30516,6 @@
 +  const f = path.join(absRoot(root), ...String(rel || '.mcp.json').split('/'));
 +  let result;
 +  _withLock(f, () => { result = _mergeMcpJsonLocked(root, rel); });
 +  return result;
 +}
 +function _mergeMcpJsonLocked(root, rel) {
-@@ -30495,0 +30626 @@
+@@ -30495,0 +30630 @@
 +  if (!['build', 'show'].includes(sub)) return failJson(jsonMode, 'unknown_subcommand', `알 수 없는 glossary 하위명령: ${_lineSafe(sub).slice(0, 80)} — leerness glossary [build|show]`);
-@@ -30548 +30679 @@
+@@ -30548 +30683 @@
 -    log(`# leerness adapter (1.9.280, UR-0033) — 도구별 선택 설치`);
 +    log(`# leerness adapter — 도구별 선택 설치`);
-@@ -30568,0 +30700 @@
+@@ -30568,0 +30704 @@
 +    _withLock(gf, () => {
-@@ -30571,0 +30704 @@
+@@ -30571,0 +30708 @@
 +      if (dry) { log(s >= 0 && e >= s ? '[dry-run] codex 전역 leerness 블록 제거 예정 (실제 변경 0)' : '전역 블록 없음 — 변경 없음'); return; }
-@@ -30588,0 +30722 @@
+@@ -30588,0 +30726 @@
 +    if (dry) { log(`[dry-run] codex 전역 지침 설치 예정 — ${gf} (실제 변경 0)`); return; }
-@@ -30593,0 +30728 @@
+@@ -30593,0 +30732 @@
 +    });
-@@ -30719 +30854 @@
+@@ -30719 +30858 @@
 -  log(cy(`# leerness reuse-check (1.9.285, UR-0023) — 빌드 vs 재사용 결정 게이트`));
 +  log(cy(`# leerness reuse-check — 빌드 vs 재사용 결정 게이트`));
-@@ -30754 +30889 @@
+@@ -30754 +30893 @@
 -  for (const s of skills) { const re = new RegExp(String(s.id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'); uses[s.id] = (hist.match(re) || []).length; }
 +  for (const s of skills) { const re = new RegExp('(?<![\\w-])' + String(s.id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w-])', 'g'); uses[s.id] = (hist.match(re) || []).length; }
-@@ -30764 +30899 @@
+@@ -30764 +30903 @@
 -  log(cy(`# leerness skill impact (1.9.286, UR-0024) — 스킬 영향 경량 상관추적`));
 +  log(cy(`# leerness skill impact — 스킬 영향 경량 상관추적`));
-@@ -30781,0 +30917,15 @@
+@@ -30781,0 +30921,15 @@
 +  if (opts.id) {
 +    const replPinCheck = require('../lib/model-pin');
 +    const history = require('../lib/role-fallback').readExecutionEvents(root, 2000, { preserveAll: true, maxBytes: 64 * 1024 * 1024 });
@@ -2702,17 +2712,17 @@ index fb0c37b5..90bfee96 100644
 +      opts = { ...opts, provider: wanted.provider, model: wanted.model };
 +    }
 +  }
-@@ -30804 +30954 @@
+@@ -30804 +30958 @@
 -                                  .filter(x => x.status.status === 'ready');
 +                                  .filter(x => x.status.status === 'ready' && _REPL_CHAT_PROVIDERS.includes(x.def.id));
-@@ -30823,0 +30974,3 @@
+@@ -30823,0 +30978,3 @@
 +    modelPinned: !!opts.model,
 +    explicitTaskId: opts.id || null,
 +    replTasks: {},
-@@ -30864 +31017 @@
+@@ -30864 +31021 @@
 -      const readyCli = EXTERNAL_AGENTS.filter(a => a.id !== 'ollama')
 +      const readyCli = EXTERNAL_AGENTS.filter(a => _REPL_CLI_PROVIDERS.includes(a.id))
-@@ -30880,4 +31033,4 @@
+@@ -30880,4 +31037,4 @@
 -  log(C.yel('  │  ') + C.dim('Tab / Shift+Tab') + '   ' + C.dim('— provider / model 전환 (1.9.170)') + C.yel(' '.repeat(Math.max(1, 17)) + '│'));
 -  log(C.yel('  │  ') + C.dim(':review "<req>"') + '   ' + C.dim('— 무조건 구현 전 사전 검토 (1.9.176)') + C.yel(' '.repeat(Math.max(1, 13)) + '│'));
 -  log(C.yel('  │  ') + C.dim(':permissions <m>') + '  ' + C.dim('— 즉시 권한 변경 basic|extended|full (1.9.174)') + C.yel(' │'));
@@ -2721,39 +2731,39 @@ index fb0c37b5..90bfee96 100644
 +  log(C.yel('  │  ') + C.dim(':review "<req>"') + '   ' + C.dim('— 무조건 구현 전 사전 검토') + C.yel(' '.repeat(Math.max(1, 13)) + '│'));
 +  log(C.yel('  │  ') + C.dim(':permissions <m>') + '  ' + C.dim('— 즉시 권한 변경 basic|extended|full') + C.yel(' │'));
 +  log(C.yel('  │  ') + C.dim(':stream on|off') + '    ' + C.dim('— 실시간 스트리밍 토글 (default ON)') + C.yel(' │'));
-@@ -30886 +31039 @@
+@@ -30886 +31043 @@
 -  log(C.bold(C.green('  ┌─ What\'s new (1.9.170~178) ─────────────────────────────────────────┐')));
 +  log(C.bold(C.green('  ┌─ What\'s new ─────────────────────────────────────────┐')));
-@@ -31039 +31192 @@
+@@ -31039 +31196 @@
 -        return [..._PROVIDER_CYCLE_ORDER, ...userIds];
 +        return [..._PROVIDER_CYCLE_ORDER.filter(id => _REPL_CHAT_PROVIDERS.includes(id)), ...userIds];
-@@ -31189 +31342 @@
+@@ -31189 +31346 @@
 -      log('    :model <name>         — 모델 변경 (1.9.155 모든 provider 지원, 예: :model claude-opus-4-7)');
 +      log('    :model <name>         — 모델 변경 (모든 provider 지원, 예: :model claude-opus-4-7)');
-@@ -31193,2 +31346,2 @@
+@@ -31193,2 +31350,2 @@
 -      log('    :stream on|off        — 🆕 1.9.170 실시간 스트리밍 토글 (추론중/diff/thinking 실시간 표시)');
 -      log('    :status               — 현재 세션 상태 자세히 (1.9.155)');
 +      log('    :stream on|off        — 실시간 스트리밍 토글 (추론중/diff/thinking 실시간 표시)');
 +      log('    :status               — 현재 세션 상태 자세히');
-@@ -31199 +31352 @@
+@@ -31199 +31356 @@
 -      log('    :permissions [mode]   — 🆕 1.9.174 현재 모드 표시 / 또는 즉시 변경 (basic/extended/full)');
 +      log('    :permissions [mode]   — 현재 모드 표시 / 또는 즉시 변경 (basic/extended/full)');
-@@ -31202 +31355 @@
+@@ -31202 +31359 @@
 -      log(C.bold('\n  🆕 1.9.170 키보드 단축키:'));
 +      log(C.bold('\n  키보드 단축키:'));
-@@ -31205 +31358 @@
+@@ -31205 +31362 @@
 -      log(C.bold('\n  Slash 명령 (1.9.150) — leerness 내부 명령 직접 호출:'));
 +      log(C.bold('\n  Slash 명령 — leerness 내부 명령 직접 호출:'));
-@@ -31210 +31363 @@
+@@ -31210 +31367 @@
 -      log(C.bold('\n  Memory Slash (1.9.161) — Memory Surface 즉시 조회:'));
 +      log(C.bold('\n  Memory Slash — Memory Surface 즉시 조회:'));
-@@ -31215 +31368 @@
+@@ -31215 +31372 @@
 -      log(C.bold('\n  🆕 Review Slash (1.9.176) — 사용자 요청 사전 검토:'));
 +      log(C.bold('\n  🆕 Review Slash — 사용자 요청 사전 검토:'));
-@@ -31217 +31370 @@
+@@ -31217 +31374 @@
 -      log(C.bold('\n  🆕 Bridge Slash (1.9.175) — REPL 안에서 즉시 Bridge 호출:'));
 +      log(C.bold('\n  🆕 Bridge Slash — REPL 안에서 즉시 Bridge 호출:'));
-@@ -31238,2 +31391,13 @@
+@@ -31238,2 +31395,13 @@
 -      state.model = m;
 -      log(C.green(`  model = ${state.model}  (provider: ${state.provider})`));
 +      const nextModel = m === 'default' ? null : m;
@@ -2769,19 +2779,19 @@ index fb0c37b5..90bfee96 100644
 +      state.modelPinned = nextModel !== null;
 +      log(C.green(`  model = ${state.model || '(provider 기본)'}  (provider: ${state.provider})`));
 +      if (state.modelPinned && state.provider !== 'ollama') log(C.yel(`     ⚠ ${state.provider} CLI 경로는 모델을 전달하지 못해 고정 모델을 보장할 수 없습니다 — 호출하지 않습니다. 해제: :model default`));
-@@ -31318 +31482 @@
+@@ -31318 +31486 @@
 -        log(C.green('  ↪ auto-fallback: ON (1.9.247) — 현재 provider transient 실패 (timeout/exit=null) 시 다음 ready agent 자동 전환 + 재시도'));
 +        log(C.green('  ↪ auto-fallback: ON — 현재 provider transient 실패 (timeout/exit=null) 시 다음 ready agent 자동 전환 + 재시도'));
-@@ -31373 +31537 @@
+@@ -31373 +31541 @@
 -      log(C.bold('\n  📊 REPL 세션 상태 (1.9.155)'));
 +      log(C.bold('\n  📊 REPL 세션 상태'));
-@@ -31404 +31568 @@
+@@ -31404 +31572 @@
 -          log(C.dim(`     :permissions full  로 즉시 변경 가능 (1.9.174)`));
 +          log(C.dim(`     :permissions full  로 즉시 변경 가능`));
-@@ -31503 +31667 @@
+@@ -31503 +31671 @@
 -      state.history.push({ role: 'user', content: input });
 +      state.history.push({ role: 'user', content: input, at: new Date().toISOString() });
-@@ -31510,0 +31675,28 @@
+@@ -31510,0 +31679,28 @@
 +        const replPin = require('../lib/model-pin');
 +        const replExecutor = { provider: 'ollama', model: state.model };
 +        let replAttempt = null;
@@ -2810,7 +2820,7 @@ index fb0c37b5..90bfee96 100644
 +            promptWithStatus(); return;
 +          }
 +        }
-@@ -31512 +31704,9 @@
+@@ -31512 +31708,9 @@
 -        result = await _ollamaChat(finalPrompt, state.model);
 +        result = await _ollamaGenerate(finalPrompt, state.model);
 +        if (state.modelPinned) result = _pinnedResultCheck(result, state.model);
@@ -2821,30 +2831,30 @@ index fb0c37b5..90bfee96 100644
 +      } else if (state.modelPinned && ['claude', 'codex', 'agy', 'copilot'].includes(state.provider)) {
 +        log(C.yel(`  ⛔ 고정 모델 ${state.model}: ${state.provider} CLI 경로는 모델을 전달하지 못해 호출하지 않았습니다 (대체 없음). :model default 로 해제하거나 ollama 를 쓰세요.`));
 +        promptWithStatus(); return;
-@@ -31528 +31728 @@
+@@ -31528 +31732 @@
 -        state.history.push({ role: 'assistant', content: result.response });
 +        state.history.push({ role: 'assistant', content: result.response, at: new Date().toISOString() });
-@@ -31558 +31758,3 @@
+@@ -31558 +31762,3 @@
 -        if (state.autoFallback && isTransient) {
 +        if (state.autoFallback && isTransient && state.modelPinned) {
 +          log(C.dim(`     (auto-fallback 생략: 모델 ${state.model} 고정 — 다른 모델로 바꾸려면 직접 :provider / :model)`));
 +        } else if (state.autoFallback && isTransient) {
-@@ -31560 +31762 @@
+@@ -31560 +31766 @@
 -            const others = EXTERNAL_AGENTS.filter(a => a.id !== state.provider)
 +            const others = EXTERNAL_AGENTS.filter(a => a.id !== state.provider && _REPL_CLI_PROVIDERS.includes(a.id))
-@@ -31565 +31767 @@
+@@ -31565 +31771 @@
 -              log(C.green(`  ↪ auto-fallback (1.9.247): ${state.provider} 실패 → ${next} 자동 전환 + 재시도 중...`));
 +              log(C.green(`  ↪ auto-fallback: ${state.provider} 실패 → ${next} 자동 전환 + 재시도 중...`));
-@@ -31578 +31780 @@
+@@ -31578 +31784 @@
 -                state.history.push({ role: 'assistant', content: retry.response });
 +                state.history.push({ role: 'assistant', content: retry.response, at: new Date().toISOString() });
-@@ -31597 +31799 @@
+@@ -31597 +31803 @@
 -          const others = EXTERNAL_AGENTS.filter(a => a.id !== state.provider)
 +          const others = EXTERNAL_AGENTS.filter(a => a.id !== state.provider && _REPL_CHAT_PROVIDERS.includes(a.id))
-@@ -31602 +31804 @@
+@@ -31602 +31808 @@
 -            if (!state.autoFallback) log(C.dim(`     💡 다음 실패 시 자동 전환: \`:fallback on\` (1.9.247 UR-0016 2단계)`));
 +            if (!state.autoFallback) log(C.dim(`     💡 다음 실패 시 자동 전환: \`:fallback on\``));
-@@ -31623 +31825,10 @@
+@@ -31623 +31829,10 @@
 -   
 +  const roleArg = arg('--role', 'actor');
 +  if (!Object.prototype.hasOwnProperty.call(_AGENT_ROLE_PROMPTS, roleArg)) {
@@ -2856,21 +2866,21 @@ index fb0c37b5..90bfee96 100644
 +  const idFlagIssue = require('../lib/agents')._singletonFlagIssue(_optionArgv().slice(2), '--id') || require('../lib/model-pin').idIssue(arg('--id', null), '--id');
 +  if (idFlagIssue) { failJson(has('--json'), idFlagIssue.code, idFlagIssue.error); return; }
 +
-@@ -31630 +31841,2 @@
+@@ -31630 +31845,2 @@
 -        role: arg('--role', 'actor')
 +        role: arg('--role', 'actor'),
 +        id: arg('--id', null)
-@@ -31641,2 +31853,2 @@
+@@ -31641,2 +31857,2 @@
 -    log('  leerness agent "<task>" --role planner      # 계획만 (1.9.148)');
 -    log('  leerness agent "<task>" --role reviewer     # 비판적 검토 (1.9.148)');
 +    log('  leerness agent "<task>" --role planner      # 계획만');
 +    log('  leerness agent "<task>" --role reviewer     # 비판적 검토');
-@@ -31647,2 +31859,2 @@
+@@ -31647,2 +31863,2 @@
 -    log('REPL Slash 명령 (1.9.150): :verify / :audit / :handoff / :health  (sandboxed runCommandSafe)');
 -    log('REPL Multi-provider (1.9.153): ollama / claude / codex / agy / copilot — 활성 CLI 자동 감지');
 +    log('REPL Slash 명령: :verify / :audit / :handoff / :health  (sandboxed runCommandSafe)');
 +    log('REPL Multi-provider: ollama / claude / codex / agy / copilot — 활성 CLI 자동 감지');
-@@ -31659,2 +31871,27 @@
+@@ -31659,2 +31875,27 @@
 -  const provider = providerArg || active[0] || null;
 -  log(`# leerness agent (1.9.146/148)`);
 +  const modelPin = require('../lib/model-pin');
@@ -2900,7 +2910,7 @@ index fb0c37b5..90bfee96 100644
 +    return;
 +  }
 +  log(`# leerness agent`);
-@@ -31679,0 +31917,19 @@
+@@ -31679,0 +31921,19 @@
 +  let attempt = null;
 +  const pinExecutor = { provider, model: requestedModel };
 +  if (pinnedRun) {
@@ -2920,10 +2930,10 @@ index fb0c37b5..90bfee96 100644
 +    }
 +    log(`attempt: ${pinTaskId} · ${attempt.attemptId} · pinned ${modelPin.describe(pinState.pin)}`);
 +  }
-@@ -31683 +31939 @@
+@@ -31683 +31943 @@
 -    r = await _ollamaChat(finalPrompt);
 +    r = _pinnedResultCheck(await _ollamaGenerate(finalPrompt, requestedModel), requestedModel);
-@@ -31695 +31951,8 @@
+@@ -31695 +31955,8 @@
 -  _recordRun(root, { kind: 'agent_one_shot', provider, model: r.model || provider, role, durationMs: dt, ok: r.ok, error: r.error, task: task.slice(0, 200), responseChars: (r.response || '').length });
 +  _recordRun(root, { kind: 'agent_one_shot', provider, model: r.model || provider, reportedModel: r.reportedModel || null, role, durationMs: dt, ok: r.ok, error: r.error, task: task.slice(0, 200), responseChars: (r.response || '').length });
 +  if (attempt) {
@@ -2933,79 +2943,79 @@ index fb0c37b5..90bfee96 100644
 +      process.exitCode = 1;
 +    }
 +  }
-@@ -31767 +32030 @@
+@@ -31767 +32034 @@
 -  log(`# leerness creds list (1.9.147)`);
 +  log(`# leerness creds list`);
-@@ -31773,0 +32037 @@
+@@ -31773,0 +32041 @@
 +    if (!meta || typeof meta !== 'object' || !Array.isArray(meta.envVars)) { warn(`  ${_lineSafe(name)}: 레코드 형상 무효 (envVars 없음) — credentials.local.json 확인`); continue; }
-@@ -31784,0 +32049 @@
+@@ -31784,0 +32053 @@
 +  if (service in Object.prototype) return fail(`쓸 수 없는 service 이름: ${JSON.stringify(_lineSafe(service))} (객체 내장 이름)`);
-@@ -31789 +32054,3 @@
+@@ -31789 +32058,3 @@
 -  const lifetime = parseInt(arg('--token-lifetime-hours', '0'), 10) || null;
 +  const lifetimeArg = arg('--token-lifetime-hours', null);
 +  if (lifetimeArg != null && !/^[1-9][0-9]*$/.test(String(lifetimeArg))) return fail(`--token-lifetime-hours 는 1 이상의 정수여야 합니다 (받음: ${JSON.stringify(_lineSafe(String(lifetimeArg)))})`);
 +  const lifetime = lifetimeArg != null ? parseInt(lifetimeArg, 10) : null;
-@@ -31829 +32096 @@
+@@ -31829 +32100 @@
 -  log(`# leerness creds check (1.9.147)`);
 +  log(`# leerness creds check`);
-@@ -31875 +32142 @@
+@@ -31875 +32146 @@
 -  log('# leerness incident list (1.9.147)');
 +  log('# leerness incident list');
-@@ -31906 +32173 @@
+@@ -31906 +32177 @@
 -  log(`# leerness incident handle (1.9.147)`);
 +  log(`# leerness incident handle`);
-@@ -31968 +32235 @@
+@@ -31968 +32239 @@
 -  log(`# leerness webhook serve (1.9.147)`);
 +  log(`# leerness webhook serve`);
-@@ -31986,3 +32253,3 @@
+@@ -31986,3 +32257,3 @@
 -            const sig = req.headers['x-leerness-signature'] || '';
 -            const expected = _hmacSha256(secret, body);
 -            if (sig !== expected) {
 +            const sig = Buffer.from(String(req.headers['x-leerness-signature'] || ''));
 +            const expected = Buffer.from(_hmacSha256(secret, body));
 +            if (sig.length !== expected.length || !require('crypto').timingSafeEqual(sig, expected)) {
-@@ -32009,2 +32276,3 @@
+@@ -32009,2 +32280,3 @@
 -  server.listen(port, () => {
 -    ok(`listening on port ${port}`);
 +  server.listen(port, arg('--host', '127.0.0.1'), () => {
 +    const bound = server.address();
 +    ok(`listening on ${bound.address}:${bound.port}`);
-@@ -32023 +32291 @@
+@@ -32023 +32295 @@
 -    log('# leerness deploy auto (1.9.147)');
 +    log('# leerness deploy auto');
-@@ -32050 +32318 @@
+@@ -32050 +32322 @@
 -  log(`# leerness deploy auto (1.9.147)`);
 +  log(`# leerness deploy auto`);
-@@ -32059,4 +32326,0 @@
+@@ -32059,4 +32330,0 @@
 -     
 -    j.services[service].lastRefreshed = new Date().toISOString();
 -    _writeCredentials(root, j);
 -     
-@@ -32079 +32343 @@
+@@ -32079 +32347 @@
 -  log(`# leerness usage stats (1.9.38)`);
 +  log(`# leerness usage stats`);
-@@ -32107 +32371 @@
+@@ -32107 +32375 @@
 -      log(`💡 drift 경고 ${stats.drift.skipped}회 스킵 → 1.9.38 학습: 임계 자동 완화 (--no-drift-check 빈도 ≥5)`);
 +      log(`💡 drift 경고 ${stats.drift.skipped}회 스킵 → 학습: 임계 자동 완화 (--no-drift-check 빈도 ≥5)`);
-@@ -32115 +32379 @@
+@@ -32115 +32383 @@
 -    log(`## 🔌 MCP tools/call 통계 (1.9.70) — last: ${stats.mcp.lastAt || '(none)'}`);
 +    log(`## 🔌 MCP tools/call 통계 — last: ${stats.mcp.lastAt || '(none)'}`);
-@@ -32192 +32456 @@
+@@ -32192 +32460 @@
 -      log(`# leerness task export (1.9.60)`);
 +      log(`# leerness task export`);
-@@ -32199 +32463 @@
+@@ -32199 +32467 @@
 -    log(`# leerness task export (1.9.60)`);
 +    log(`# leerness task export`);
-@@ -32393 +32657,2 @@
+@@ -32393 +32661,2 @@
 -  log(`# leerness task sync (1.9.38)`);
 +  if (has('--json')) { log(JSON.stringify({ ok: !conflicts.length && !ambiguous.length, imported, updated, total: todos.length, conflicts, ambiguous }, null, 2)); return; }
 +  log(`# leerness task sync`);
-@@ -32396 +32660,0 @@
+@@ -32396 +32664,0 @@
 -  if (has('--json')) log(JSON.stringify({ ok: !conflicts.length && !ambiguous.length, imported, updated, total: todos.length, conflicts, ambiguous }, null, 2));
-@@ -32459 +32723 @@
+@@ -32459 +32727 @@
 -  log(`# leerness contract verify (1.9.35)`);
 +  log(`# leerness contract verify`);
-@@ -32519,7 +32783,14 @@
+@@ -32519,7 +32787,14 @@
 -    let body = read(reusePath);
 -    for (const c of found) {
 -      if (body.includes(`| ${c.name} |`)) continue;  
@@ -3027,61 +3037,64 @@ index fb0c37b5..90bfee96 100644
 +        storage.publishTextEdit(input, reusePath, headerIdx >= 0 ? lines.join('\n') : input.text + (input.text.endsWith('\n') ? '' : '\n') + rows.join('\n') + '\n');
 +      }
 +    });
-@@ -32532 +32803 @@
+@@ -32532 +32807 @@
 -  log(`# leerness reuse autodetect (1.9.35)`);
 +  log(`# leerness reuse autodetect`);
-@@ -32573 +32844 @@
+@@ -32573 +32848 @@
 -    log(`# leerness web check (1.9.165)`);
 +    log(`# leerness web check`);
-@@ -32597 +32868 @@
+@@ -32597 +32872 @@
 -    log(`# leerness web screenshot (1.9.165)`);
 +    log(`# leerness web screenshot`);
-@@ -32645 +32916 @@
+@@ -32645 +32920 @@
 -          log(`# leerness web extract (1.9.165)`);
 +          log(`# leerness web extract`);
-@@ -32701 +32972 @@
+@@ -32701 +32976 @@
 -    log(`# leerness pc check (1.9.166)`);
 +    log(`# leerness pc check`);
-@@ -32709 +32980 @@
+@@ -32709 +32984 @@
 -    log(`## 권한 (1.9.146)`);
 +    log(`## 권한`);
-@@ -32742 +33013,5 @@
+@@ -32742 +33017,5 @@
 -        })();
 +        })().catch((e) => {
 +          fail(`click 실패: ${e.message}`);
 +          try { _recordRun(root, { kind: 'pc_click', x, y, lib: r.name, durationMs: Date.now() - t0, ok: false, error: e.message }); } catch {}
 +          process.exitCode = 1;
 +        });
-@@ -32773 +33048,5 @@
+@@ -32773 +33052,5 @@
 -        })();
 +        })().catch((e) => {
 +          fail(`type 실패: ${e.message}`);
 +          try { _recordRun(root, { kind: 'pc_type', chars: text.length, lib: r.name, durationMs: Date.now() - t0, ok: false, error: e.message }); } catch {}
 +          process.exitCode = 1;
 +        });
-@@ -32806 +33085 @@
+@@ -32806 +33089 @@
 -          const img = await screen.capture(outPath);
 +          await screen.capture(outPath);
-@@ -32810 +33089,5 @@
+@@ -32810 +33093,5 @@
 -        })();
 +        })().catch((e) => {
 +          fail(`screenshot 실패: ${e.message}`);
 +          try { _recordRun(root, { kind: 'pc_screenshot', outPath, lib: r.name, durationMs: Date.now() - t0, ok: false, error: e.message }); } catch {}
 +          process.exitCode = 1;
 +        });
-@@ -32898 +33181 @@
+@@ -32898 +33185 @@
 -    log(`# leerness lsp check (1.9.167)`);
 +    log(`# leerness lsp check`);
-@@ -32933 +33216 @@
+@@ -32933 +33220 @@
 -      log(`# leerness lsp symbols (1.9.173 다국어)`);
 +      log(`# leerness lsp symbols (다국어)`);
-@@ -32972 +33255 @@
+@@ -32972 +33259 @@
 -      log(`# leerness lsp references (1.9.167)`);
 +      log(`# leerness lsp references`);
-@@ -33150 +33433 @@
+@@ -33150 +33437 @@
 -  log(`Leerness v${VERSION}\n\nUsage:\n  leerness init [path] [--language auto|ko|en] [--authoring-language en|ko|inherit] [--skills recommended|all|a,b]\n  leerness migrate [path] [--dry-run] [--force]\n  leerness update [path] [--check|--yes|--force|--from <tarball>]\n  leerness auto-update install [path]\n  leerness status [path]\n  leerness verify [path]\n  leerness debug [path]\n  leerness audit [path]\n  leerness check [path]\n  leerness scan secrets [path]\n  leerness encoding check [path]\n  leerness lazy detect [path]\n  leerness memory search "query" [--limit 5]\n  leerness handoff [path] [--all-apps] [--include p1,p2] [--since 24h|3d] [--compact] [--json] [--record] [--inspect]   # 1.9.17-22 워크스페이스 (--compact: LLM 시스템 프롬프트용 1줄 요약)\n  leerness orchestrate "<목표>" [--agents N] [--model qwen2.5:7b-instruct] [--retry-on-fail K]   # 1.9.22 Ollama opt-in (LEERNESS_OLLAMA_BASE_URL 필요)\n  leerness llm-bench record --score N --model X [--label L] [--tokens T]   # 1.9.22 LLM 벤치 히스토리 누적\n  leerness deps <capability> [--run-tests] [--json]   # 1.9.24 depends-on 역방향 추적 + 자동 회귀 sweep\n  leerness memory search "키" [--include-code]   # 1.9.25 소스 코드 본문도 검색 (모순 감지 핵심)\n  leerness brainstorm "주제" [--include-code]    # 1.9.25 코드 본문 hits 포함\n  leerness register-pending "<요청>" [--agent X] [--note Y]   # 1.9.25 다중 세션 in-progress 즉시 등록\n  leerness optimism-check <T-ID> [--json]   # 1.9.26/27 낙관적 표시 감지 (1.9.27: 10 카테고리 + URL/메서드 매핑 + 신뢰도 점수)\n  leerness persona list|show <id>|add <id>   # 1.9.29 페르소나 카탈로그 (보안/성능/UX/testing/docs 5종 내장)\n  leerness review <file> --persona <id1,id2,...>   # 1.9.29 도메인 페르소나 리뷰 프롬프트 자동 생성\n  leerness agents list|check|quota          # 외부 AI CLI 다축 가용성 확인\n  leerness agents resolve \"<task>\" --role <role> [--preset strict|balanced|continuity]   # 역할 유지 + 대체 선택지\n  leerness agents fallback provider|session|direct|hold \"<task>\" --role <role> [--session-provider P --session-model M --session-model-family F]   # 명시 선택·기록\n  leerness agents record completed|failed|reviewed|validated \"<summary>\" [--task T-ID --role R --to P --model M --model-family F --agent P --agent-model M --agent-model-family F --evidence E]\n  leerness agents history [--limit 20]        # 실행자·검수자·결과 provenance\n  leerness agents dispatch \"<task>\" --to <id>   # 활성 CLI 대상 실행 명령 생성 (실 호출 X, 사용자 실행)\n  leerness agents multi "<task>" [--only c1,c2] [--write] [--execute] [--timeout 60]   # 1.9.152/156 활성 N개 일괄 dispatch (--execute: 실 spawn + consensus)\n  leerness provider list|add|remove [args]   # 1.9.157 Provider Registry — 사용자 정의 CLI provider 동적 추가 (OpenRouter/Bedrock 흡수)\n  leerness agents dispatch "<task>" --multi   # 1.9.152 multi 모드 alias (또는 --to all)\n  leerness init [path] [--no-stale-check]                   # 1.9.33 npx 캐시 함정 — 옛 버전 자동 경고 (끄려면 --no-stale-check)\n  leerness which [--json]                                   # 1.9.164 진단: 현재 실행 경로/버전 + npm 캐시 + PATH 후보 (구버전 충돌 해결)\n  leerness selftest [--json]                                # 1.9.258 코어 함수 무결성 자가 검증 (설치 손상/부분설치 감지, CI 친화 exit 1)\n  leerness shell-guard "<command>" [--json]                 # 1.9.260 터미널 명령 셸 호환성 린터 (PowerShell 5.1 && 미지원 등 실행 전 감지, UR-0020)\n  leerness shell-guard --record --cmd "..." --exit N        # 1.9.260 실패한 터미널 명령 기록 → 다음 분석 시 회수\n  leerness path-setup [--apply] [--json]                    # 1.9.254 leerness CLI PATH 자동 등록 (npm global bin 미등록 시)\n  leerness web check|screenshot|extract <url> [--out file.png] [--selector "css"]  # 1.9.165 playwright bridge (opt-in: npm i -g playwright + permissions.browser)\n  leerness pc check|click|type|screenshot [--x N --y N] [--text "s"] [--out f.png]  # 1.9.166 robotjs/nut-tree bridge (opt-in: npm i -g robotjs + permissions.mouse/keyboard, ⚠ full 모드 권장)\n  leerness lsp check|symbols|references <file/name> [--in dir] [--json]  # 1.9.167 LSP 어댑터 MVP (typescript opt-in + regex fallback, 코드 인텔리전스)\n  leerness review-request "<request>" [--json]  # 1.9.176 사용자 요청 사전 검토 (충돌/재사용/효율/권장 단계 — 사용자 명시)\n  leerness contract verify <spec.md> <impl.js> [--json]     # 1.9.35 명세 ↔ 구현 일치 검사 (함수/필드)\n  leerness reuse autodetect [path] [--apply] [--json]       # 1.9.35 src/*.js의 module.exports → reuse-map 후보 등록\n  leerness audit [path] [--fix]                              # 1.9.35 --fix: session-handoff/current-state 자동 갱신\n  leerness verify-claim <T-ID> ... [--strict-claims]   # 1.9.26 verify-claim에 낙관적 표시 자동 검사 통합
 +  log(`Leerness v${VERSION}\n\nUsage:\n  leerness init [path] [--language auto|ko|en] [--authoring-language en|ko|inherit] [--skills recommended|all|a,b]\n  leerness migrate [path] [--dry-run] [--force]\n  leerness update [path] [--check|--yes|--force|--from <tarball>]\n  leerness auto-update install [path]\n  leerness status [path]\n  leerness verify [path]\n  leerness debug [path]\n  leerness audit [path]\n  leerness check [path]\n  leerness scan secrets [path]\n  leerness encoding check [path]\n  leerness lazy detect [path]\n  leerness memory search "query" [--limit 5]\n  leerness handoff [path] [--all-apps] [--include p1,p2] [--since 24h|3d] [--compact] [--json] [--record] [--inspect]   # 1.9.17-22 워크스페이스 (--compact: LLM 시스템 프롬프트용 1줄 요약)\n  leerness orchestrate "<목표>" [--agents N] [--model qwen2.5:7b-instruct] [--retry-on-fail K]   # 1.9.22 Ollama opt-in (LEERNESS_OLLAMA_BASE_URL 필요)\n  leerness llm-bench record --score N --model X [--label L] [--tokens T]   # 1.9.22 LLM 벤치 히스토리 누적\n  leerness deps <capability> [--run-tests] [--json]   # 1.9.24 depends-on 역방향 추적 + 자동 회귀 sweep\n  leerness memory search "키" [--include-code]   # 1.9.25 소스 코드 본문도 검색 (모순 감지 핵심)\n  leerness brainstorm "주제" [--include-code]    # 1.9.25 코드 본문 hits 포함\n  leerness register-pending "<요청>" [--agent X] [--note Y]   # 1.9.25 다중 세션 in-progress 즉시 등록\n  leerness optimism-check <T-ID> [--json]   # 1.9.26/27 낙관적 표시 감지 (1.9.27: 10 카테고리 + URL/메서드 매핑 + 신뢰도 점수)\n  leerness persona list|show <id>|add <id>   # 1.9.29 페르소나 카탈로그 (보안/성능/UX/testing/docs 5종 내장)\n  leerness review <file> --persona <id1,id2,...>   # 1.9.29 도메인 페르소나 리뷰 프롬프트 자동 생성\n  leerness agents list|check|quota          # 외부 AI CLI 다축 가용성 확인\n  leerness agents resolve \"<task>\" --role <role> [--id <task-id>] [--preset strict|balanced|continuity]   # 역할 유지 + 대체 선택지 (--id: 그 작업의 모델 고정 유지)\n  leerness agents fallback provider|session|direct|hold \"<task>\" --role <role> [--session-provider P --session-model M --session-model-family F]   # 명시 선택·기록\n  leerness agents record completed|failed|reviewed|validated \"<summary>\" [--task T-ID --role R --to P --model M --model-family F --agent P --agent-model M --agent-model-family F --evidence E]\n  leerness agents history [--limit 20]        # 실행자·검수자·결과 provenance\n  leerness agents dispatch \"<task>\" --to <id>   # 활성 CLI 대상 실행 명령 생성 (실 호출 X, 사용자 실행)\n  leerness agents multi "<task>" [--only c1,c2] [--write] [--execute] [--timeout 60]   # 1.9.152/156 활성 N개 일괄 dispatch (--execute: 실 spawn + consensus)\n  leerness provider list|add|remove [args]   # 1.9.157 Provider Registry — 사용자 정의 CLI provider 동적 추가 (OpenRouter/Bedrock 흡수)\n  leerness agents dispatch "<task>" --multi   # 1.9.152 multi 모드 alias (또는 --to all)\n  leerness init [path] [--no-stale-check]                   # 1.9.33 npx 캐시 함정 — 옛 버전 자동 경고 (끄려면 --no-stale-check)\n  leerness which [--json]                                   # 1.9.164 진단: 현재 실행 경로/버전 + npm 캐시 + PATH 후보 (구버전 충돌 해결)\n  leerness selftest [--json]                                # 1.9.258 코어 함수 무결성 자가 검증 (설치 손상/부분설치 감지, CI 친화 exit 1)\n  leerness shell-guard "<command>" [--json]                 # 1.9.260 터미널 명령 셸 호환성 린터 (PowerShell 5.1 && 미지원 등 실행 전 감지, UR-0020)\n  leerness shell-guard --record --cmd "..." --exit N        # 1.9.260 실패한 터미널 명령 기록 → 다음 분석 시 회수\n  leerness path-setup [--apply] [--json]                    # 1.9.254 leerness CLI PATH 자동 등록 (npm global bin 미등록 시)\n  leerness web check|screenshot|extract <url> [--out file.png] [--selector "css"]  # 1.9.165 playwright bridge (opt-in: npm i -g playwright + permissions.browser)\n  leerness pc check|click|type|screenshot [--x N --y N] [--text "s"] [--out f.png]  # 1.9.166 robotjs/nut-tree bridge (opt-in: npm i -g robotjs + permissions.mouse/keyboard, ⚠ full 모드 권장)\n  leerness lsp check|symbols|references <file/name> [--in dir] [--json]  # 1.9.167 LSP 어댑터 MVP (typescript opt-in + regex fallback, 코드 인텔리전스)\n  leerness review-request "<request>" [--json]  # 1.9.176 사용자 요청 사전 검토 (충돌/재사용/효율/권장 단계 — 사용자 명시)\n  leerness contract verify <spec.md> <impl.js> [--json]     # 1.9.35 명세 ↔ 구현 일치 검사 (함수/필드)\n  leerness reuse autodetect [path] [--apply] [--json]       # 1.9.35 src/*.js의 module.exports → reuse-map 후보 등록\n  leerness audit [path] [--fix]                              # 1.9.35 --fix: session-handoff/current-state 자동 갱신\n  leerness verify-claim <T-ID> ... [--strict-claims]   # 1.9.26 verify-claim에 낙관적 표시 자동 검사 통합
-@@ -33218,6 +33501,4 @@
+@@ -33153 +33440 @@
+-  leerness loop open|round|decide|status [--json]  # 같은 주제의 반복 검수·수리 회차 기록 (기본 한도 3회) — STOP 은 exit 3
++  leerness loop open|round|decide|status [--json]  # 같은 주제의 반복 검수·수리 회차 기록 (기본 한도 10회) — STOP 은 exit 3
+@@ -33218,6 +33505,4 @@
 -    try {
 -      const report = assessRuleArguments(assessmentArgv.slice(2));
 -      return log(jsonMode ? JSON.stringify(report, null, 2) : formatRuleAssessment(report));
@@ -3092,13 +3105,13 @@ index fb0c37b5..90bfee96 100644
 +    try { report = assessRuleArguments(assessmentArgv.slice(2)); }
 +    catch { return failJson(jsonMode, 'rule_assessment_invalid', 'Invalid rule assessment input.'); }
 +    return log(jsonMode ? JSON.stringify(report, null, 2) : formatRuleAssessment(report));
-@@ -33413 +33694 @@
+@@ -33413 +33698 @@
 -  if (!_staleSkip.has(cmd) && !has('--json') && process.env.LEERNESS_NO_STALE_CHECK !== '1' && !has('--no-stale-check')) {
 +  if (!_staleSkip.has(cmd) && !(cmd === 'session' && args[1] === 'close') && !has('--json') && process.env.LEERNESS_NO_STALE_CHECK !== '1' && !has('--no-stale-check')) {
-@@ -33417 +33698 @@
+@@ -33417 +33702 @@
 -        : absRoot(arg('--path', args[1] && !args[1].startsWith('-') ? args[1] : process.cwd()));
 +        : (runtimeRoot || absRoot(arg('--path', args[1] && !args[1].startsWith('-') ? args[1] : process.cwd())));
-@@ -34614 +34895 @@
+@@ -34614 +34899 @@
 -  _detectOptimism, _scanCodeForPatterns,
 +  _detectOptimism, _scanCodeForPatterns, _portableDispatchTaskSafe,
 diff --git a/lib/agent-registry.js b/lib/agent-registry.js
@@ -4773,6 +4786,24 @@ index c4784351..b7208e93 100644
 @@ -730 +744 @@
 -module.exports = { mutationRecoveryFolder, log, ok, warn, fail, failJson, setQuiet, today, now, absRoot, exists, read, readBuf,
 +module.exports = { mutationRecoveryFolder, log, ok, warn, fail, failJson, setQuiet, withIsolatedOutput, today, now, absRoot, exists, read, readBuf,
+diff --git a/lib/loop-guard.js b/lib/loop-guard.js
+index 29a020cd..200612dd 100644
+--- a/lib/loop-guard.js
++++ b/lib/loop-guard.js
+@@ -20 +20 @@
+-const MAX_BYTES = 262144, DEFAULT_CAP = 3, MAX_EXTENSIONS = 2, MAX_ROUNDS = 16, MAX_LOOPS = 32, MAX_DECISIONS = 8;
++const MAX_BYTES = 262144, DEFAULT_CAP = 10, MAX_EXTENSIONS = 2, MAX_ROUNDS = 16, MAX_LOOPS = 32, MAX_DECISIONS = 8;
+@@ -78 +78,3 @@
+-    exact(l, ['id', 'subject', 'subjectKey', 'openedAt', 'cap', 'extensions', 'state', 'stop', 'rounds', 'decisions', 'closedAt', 'outcome'], 'loop');
++    const hasInitialCap = Object.hasOwn(l, 'initialCap');
++    if (hasInitialCap && l.initialCap !== DEFAULT_CAP) throw corrupt('initialCap');
++    exact(l, [...(hasInitialCap ? ['initialCap'] : []), 'id', 'subject', 'subjectKey', 'openedAt', 'cap', 'extensions', 'state', 'stop', 'rounds', 'decisions', 'closedAt', 'outcome'], 'loop');
+@@ -99 +101 @@
+-    let cap = DEFAULT_CAP, extensions = 0;
++    let cap = hasInitialCap ? l.initialCap : 3, extensions = 0;
+@@ -183 +185 @@
+-    const loop = { id: `L-${String(ledger.nextId).padStart(4, '0')}`, subject: op.subject, subjectKey: op.subjectKey, openedAt: at, cap: DEFAULT_CAP, extensions: 0, state: 'open', stop: null, rounds: [], decisions: [], closedAt: null, outcome: null };
++    const loop = { id: `L-${String(ledger.nextId).padStart(4, '0')}`, subject: op.subject, subjectKey: op.subjectKey, openedAt: at, initialCap: DEFAULT_CAP, cap: DEFAULT_CAP, extensions: 0, state: 'open', stop: null, rounds: [], decisions: [], closedAt: null, outcome: null };
 diff --git a/lib/mcp-tools.js b/lib/mcp-tools.js
 index 11259b74..7687eb1e 100644
 --- a/lib/mcp-tools.js
@@ -5015,24 +5046,56 @@ index 3223ec9c..16400e5f 100644
 -  return `# Feature Graph (1.9.141)\n\n` +
 +  return `# Feature Graph\n\n` +
 diff --git a/lib/retired-guidance-sections.js b/lib/retired-guidance-sections.js
-index d83e7770..12146cbd 100644
+index d83e7770..289d64b6 100644
 --- a/lib/retired-guidance-sections.js
 +++ b/lib/retired-guidance-sections.js
 @@ -21 +21 @@
 -const GENERATED_LAYOUTS = ["01153947b4e5f2e444e5103282b22ede","052656db128f2277290cb41739531a97","076fb8788b2008ea655e613b5cd11756","08a46f061c4560d2b9b6a00f01e4a793","0978ee83b070dc19e9c809e6194c4221","0d2ced6a73819331065e44cd01fcb146","11724f2e9ac4b2bb7281a7cd1249e02d","1550f3e3d239915f04d6f7510d17df23","1b4fe761d17aa9d237cbde6d24f8f6d5","1bddace9c95d8f1d8df8d778f51328df","1f7f918fbde8ff1d984126442d828684","20c2c6c753fa71e99e8ebf6300136438","2106d6e62d8241f9f97588d83db38925","21b17e513c99e0daf663deae83b56f1d","25cb871a8176087a8b349795d23dc92b","28a15290f8f30ad850f5af53f705d278","2c825d670bb79ed1409c8ff32400a1d3","32aa62ebe3665a4f0687f9091abd73f5","3754ec378a5d7c375f15030f3de02dfb","387549632f6d2223924b57a5b03e50dd","3a51c56dcc6e06290bad956624af6270","3b29777f35c3bd5fcd613a642edb45d2","3d1cb8beb0dc057871a36752d0744d12","3d5de1f0a99347067cc2d2d7f8b9cdac","3db27757c0594f1fcfd5511bbc09ab9e","429b784f3d9119b2841ef545522923ee","4418877c9a6447b50d7d504f618ab375","45328305f98c61879c541da7eaf075c5","4b0c18c55d625b4c69389b8bd31eca06","4ce017990fd29f139ec1b0ce93535138","4dfb82ca79b0be2f2954ae5640f8ceae","4e0a7827626caa1693a7173888349d45","4e623189b1ab38eac2d51dafed3a530c","50129584483ad916c775af14cfb61af8","5056e92fd955349a8894108b903b2032","53c202f51c85e91115e4f64a78acfe39","583a502bb97082adbd87bea21649a224","5abbd2f5e6cc3898c5185fc9f0b7ea7c","5b26674332a9415c1253ea97baa2b9c3","5bbdc75bcc70fa5f3ebbf4765282ccde","5dbd54b1d99292909c29fceff5701da9","5f5880e6ec87a21a5ce624d3ae957087","6516fb1e2c3fcb176b8d96c41a676c77","6576f4abe84d9b21857210730d718841","6615305e9e2178f2a3df3b040a5cd20b","69e4339dbb512026c3656785ae6db8ec","6c789b4a25f6a98d71931ea300856414","6d0cb776c8aa5600197e3a11d401a3b1","7303f424fa7c2c203ed9e526f5e80440","7e7a87e7712fca0e95ca053c04bdaa46","85b528cce3d1d67489c465ab5f4d0ee2","8807aee0d9e33bc5eeccf63f3ae58f0d","88e35f2497a9da15164a928473202088","8ab9df52f3d0998c9c94e3d85ff1121b","8f06dcaa14c22d409bb681b7a6410e28","8fca19e48df979034b7b600fa3a3acb2","90f4dfeef401d58b5ede6ae0f8e24542","93fef1d7268cbdc7b3ba8b73aba26d7d","94f97d07f389c7ee7b1523be38f445ba","a15b3d4b3dfe5f944ed9b9d18b84ef45","a4f18667ae6b759abe915572bf87d6e5","a4ff7da46e24c1b9aeb24fd45db3d90d","a50211b49c2c5a2bcf729b26add488e5","a9980a4f8cc5684ed4a26bde2526abbc","ad26ae7869291b5346a7ea89f68cad46","ae7a7b9c78f5dff77808f309896b34f4","b5acac89497f871e0b9ddbc40b4c45c9","b8ca78688a513dc261a9e9d4d1074eab","bb15c9c43a2a6b9d55bea7f445434cb4","bb94da1d88359dd16d71f4cc35b8d27a","bbdc706d541a892d5ca3a9cd62695319","beeaa5c87a313a60167bdef923ed5c00","bf888649f87e1060a6df0c455e6a2207","bfca991eeb8e2fee381ede007de812fe","c3af6a1d114dfa9405e21d14eee8bd0a","c732a98708c088e77642a9a849c714bb","c91291af5851e7e5a8c94395c844a8d5","cd430fbf9b19589a6f5a1970154b5347","d5e0703d76097c1b1c2208d5cdf25150","d9eb3610bc4cc2917c831213324d21f7","df715840853bbd65be40ddde0ceca168","e2b2f1b1698d196bba7651c6895593cc","e3cb3dff055a7c5482c9d5a63d08ffe3","e3fbb179ac3ee06d7fe9ab7f5d92f14c","e4600407b2ae4d045d647e1e656d7e34","e7f1679dd6520812a5dad5fc5e3c37ef","e8c5722c677db3dd8a6b8c8f0f296a7e","ed2ea98dc55b845e5c1af7f723b1973b","efa917b7abbd5ccfb34c8cfcae9ec983","f35da48677b47996e32d83b19a8c79c7","f43dbab78c35815a7aa8ad994116d036","fde8c2ac5d81c35be115aeeec9ffb406"];
-+const GENERATED_LAYOUTS = ["01153947b4e5f2e444e5103282b22ede","052656db128f2277290cb41739531a97","076fb8788b2008ea655e613b5cd11756","08a46f061c4560d2b9b6a00f01e4a793","0978ee83b070dc19e9c809e6194c4221","0d2ced6a73819331065e44cd01fcb146","11724f2e9ac4b2bb7281a7cd1249e02d","1550f3e3d239915f04d6f7510d17df23","1b4fe761d17aa9d237cbde6d24f8f6d5","1bddace9c95d8f1d8df8d778f51328df","1e18beaf6c366828a81dc155a04a54b0","1f7f918fbde8ff1d984126442d828684","20c2c6c753fa71e99e8ebf6300136438","2106d6e62d8241f9f97588d83db38925","21b17e513c99e0daf663deae83b56f1d","25cb871a8176087a8b349795d23dc92b","28a15290f8f30ad850f5af53f705d278","2c825d670bb79ed1409c8ff32400a1d3","32aa62ebe3665a4f0687f9091abd73f5","3754ec378a5d7c375f15030f3de02dfb","387549632f6d2223924b57a5b03e50dd","38936d0b6b668e476d77eeb20740fe04","3a51c56dcc6e06290bad956624af6270","3b29777f35c3bd5fcd613a642edb45d2","3d1cb8beb0dc057871a36752d0744d12","3d5de1f0a99347067cc2d2d7f8b9cdac","3db27757c0594f1fcfd5511bbc09ab9e","429b784f3d9119b2841ef545522923ee","4418877c9a6447b50d7d504f618ab375","45328305f98c61879c541da7eaf075c5","4b0c18c55d625b4c69389b8bd31eca06","4ce017990fd29f139ec1b0ce93535138","4dfb82ca79b0be2f2954ae5640f8ceae","4e0a7827626caa1693a7173888349d45","4e623189b1ab38eac2d51dafed3a530c","50129584483ad916c775af14cfb61af8","5056e92fd955349a8894108b903b2032","5282e75114fb9d904700d1d8b3d4f8b2","53c202f51c85e91115e4f64a78acfe39","5669006ef146877956ce9017469cfb6f","583a502bb97082adbd87bea21649a224","5abbd2f5e6cc3898c5185fc9f0b7ea7c","5b26674332a9415c1253ea97baa2b9c3","5bbdc75bcc70fa5f3ebbf4765282ccde","5dbd54b1d99292909c29fceff5701da9","5f5880e6ec87a21a5ce624d3ae957087","6516fb1e2c3fcb176b8d96c41a676c77","6576f4abe84d9b21857210730d718841","6615305e9e2178f2a3df3b040a5cd20b","69e4339dbb512026c3656785ae6db8ec","6c789b4a25f6a98d71931ea300856414","6d0cb776c8aa5600197e3a11d401a3b1","7303f424fa7c2c203ed9e526f5e80440","7e7a87e7712fca0e95ca053c04bdaa46","85b528cce3d1d67489c465ab5f4d0ee2","8807aee0d9e33bc5eeccf63f3ae58f0d","88e35f2497a9da15164a928473202088","8ab9df52f3d0998c9c94e3d85ff1121b","8f06dcaa14c22d409bb681b7a6410e28","8fca19e48df979034b7b600fa3a3acb2","90f4dfeef401d58b5ede6ae0f8e24542","93fef1d7268cbdc7b3ba8b73aba26d7d","94f97d07f389c7ee7b1523be38f445ba","975a172cfa554efc90973f0a6eeb62c5","a15b3d4b3dfe5f944ed9b9d18b84ef45","a4f18667ae6b759abe915572bf87d6e5","a4ff7da46e24c1b9aeb24fd45db3d90d","a50211b49c2c5a2bcf729b26add488e5","a9980a4f8cc5684ed4a26bde2526abbc","ad26ae7869291b5346a7ea89f68cad46","ae7a7b9c78f5dff77808f309896b34f4","b5acac89497f871e0b9ddbc40b4c45c9","b8ca78688a513dc261a9e9d4d1074eab","bb15c9c43a2a6b9d55bea7f445434cb4","bb94da1d88359dd16d71f4cc35b8d27a","bbdc706d541a892d5ca3a9cd62695319","beeaa5c87a313a60167bdef923ed5c00","bf888649f87e1060a6df0c455e6a2207","bfca991eeb8e2fee381ede007de812fe","c3af6a1d114dfa9405e21d14eee8bd0a","c732a98708c088e77642a9a849c714bb","c91291af5851e7e5a8c94395c844a8d5","c9d4f59298a971f8326bffd15327207a","cd430fbf9b19589a6f5a1970154b5347","d5e0703d76097c1b1c2208d5cdf25150","d9eb3610bc4cc2917c831213324d21f7","dcd0bf2e209d32d7ee835f20aecb2129","df715840853bbd65be40ddde0ceca168","e2b2f1b1698d196bba7651c6895593cc","e3cb3dff055a7c5482c9d5a63d08ffe3","e3fbb179ac3ee06d7fe9ab7f5d92f14c","e4600407b2ae4d045d647e1e656d7e34","e6237fe39eac5500b941d26e962892d4","e7f1679dd6520812a5dad5fc5e3c37ef","e8c5722c677db3dd8a6b8c8f0f296a7e","ed2ea98dc55b845e5c1af7f723b1973b","efa917b7abbd5ccfb34c8cfcae9ec983","f35da48677b47996e32d83b19a8c79c7","f43dbab78c35815a7aa8ad994116d036","fde8c2ac5d81c35be115aeeec9ffb406"];
++const GENERATED_LAYOUTS = ["01153947b4e5f2e444e5103282b22ede","052656db128f2277290cb41739531a97","076fb8788b2008ea655e613b5cd11756","08a46f061c4560d2b9b6a00f01e4a793","0978ee83b070dc19e9c809e6194c4221","0d2ced6a73819331065e44cd01fcb146","11724f2e9ac4b2bb7281a7cd1249e02d","1550f3e3d239915f04d6f7510d17df23","1b4fe761d17aa9d237cbde6d24f8f6d5","1bddace9c95d8f1d8df8d778f51328df","1e18beaf6c366828a81dc155a04a54b0","1f7f918fbde8ff1d984126442d828684","20c2c6c753fa71e99e8ebf6300136438","2106d6e62d8241f9f97588d83db38925","21b17e513c99e0daf663deae83b56f1d","25cb871a8176087a8b349795d23dc92b","28a15290f8f30ad850f5af53f705d278","2c825d670bb79ed1409c8ff32400a1d3","2e071d7820e1f8edd7159edaa073a63b","32aa62ebe3665a4f0687f9091abd73f5","3754ec378a5d7c375f15030f3de02dfb","387549632f6d2223924b57a5b03e50dd","38936d0b6b668e476d77eeb20740fe04","3a51c56dcc6e06290bad956624af6270","3b29777f35c3bd5fcd613a642edb45d2","3d1cb8beb0dc057871a36752d0744d12","3d5de1f0a99347067cc2d2d7f8b9cdac","3db27757c0594f1fcfd5511bbc09ab9e","429b784f3d9119b2841ef545522923ee","4418877c9a6447b50d7d504f618ab375","45328305f98c61879c541da7eaf075c5","4660f8052767780205d38bd615924576","49c0f44a9f2ffd592b5c521ad7a06e3f","4b0c18c55d625b4c69389b8bd31eca06","4ce017990fd29f139ec1b0ce93535138","4dfb82ca79b0be2f2954ae5640f8ceae","4e0a7827626caa1693a7173888349d45","4e623189b1ab38eac2d51dafed3a530c","50129584483ad916c775af14cfb61af8","5056e92fd955349a8894108b903b2032","5282e75114fb9d904700d1d8b3d4f8b2","53c202f51c85e91115e4f64a78acfe39","5669006ef146877956ce9017469cfb6f","583a502bb97082adbd87bea21649a224","5abbd2f5e6cc3898c5185fc9f0b7ea7c","5b26674332a9415c1253ea97baa2b9c3","5bbdc75bcc70fa5f3ebbf4765282ccde","5dbd54b1d99292909c29fceff5701da9","5f5880e6ec87a21a5ce624d3ae957087","62e7fcce9645fb7d94ab9efc9434ce86","6516fb1e2c3fcb176b8d96c41a676c77","6576f4abe84d9b21857210730d718841","6615305e9e2178f2a3df3b040a5cd20b","668efb60038669ec9c59fd5cd86c686c","69e4339dbb512026c3656785ae6db8ec","6bc6d71f9329f8d31411c0dfc1e0e35d","6c789b4a25f6a98d71931ea300856414","6d0cb776c8aa5600197e3a11d401a3b1","7303f424fa7c2c203ed9e526f5e80440","7d0c02c9240f761945b04b612fb1c9b2","7e7a87e7712fca0e95ca053c04bdaa46","82b0fce7eac9c33263e531ba20b759ad","84206ba89739ba40c649b85390f0c9fa","85b528cce3d1d67489c465ab5f4d0ee2","8807aee0d9e33bc5eeccf63f3ae58f0d","88e35f2497a9da15164a928473202088","8ab9df52f3d0998c9c94e3d85ff1121b","8f06dcaa14c22d409bb681b7a6410e28","8fca19e48df979034b7b600fa3a3acb2","90f4dfeef401d58b5ede6ae0f8e24542","93fef1d7268cbdc7b3ba8b73aba26d7d","94f97d07f389c7ee7b1523be38f445ba","95f159eecd9b666468bea12d62c8c5c2","975a172cfa554efc90973f0a6eeb62c5","98bc863adfe38c6ebc3a573cd33a6b69","a15b3d4b3dfe5f944ed9b9d18b84ef45","a4f18667ae6b759abe915572bf87d6e5","a4ff7da46e24c1b9aeb24fd45db3d90d","a5016a894033a597d44663d5ea46888b","a50211b49c2c5a2bcf729b26add488e5","a625630406f350fea09609a92e131066","a94f3487db9af4d8c4e41e11e036171f","a9980a4f8cc5684ed4a26bde2526abbc","ad26ae7869291b5346a7ea89f68cad46","ae7a7b9c78f5dff77808f309896b34f4","b1026f6116dc19b1646d13725d02e2a6","b5acac89497f871e0b9ddbc40b4c45c9","b7dfb7e9321a8c12e5d72a11f3454108","b8ca78688a513dc261a9e9d4d1074eab","bb15c9c43a2a6b9d55bea7f445434cb4","bb94da1d88359dd16d71f4cc35b8d27a","bbdc706d541a892d5ca3a9cd62695319","beeaa5c87a313a60167bdef923ed5c00","bf888649f87e1060a6df0c455e6a2207","bfca991eeb8e2fee381ede007de812fe","c3af6a1d114dfa9405e21d14eee8bd0a","c55a510275b5b5f063aadfc080ce342e","c732a98708c088e77642a9a849c714bb","c91291af5851e7e5a8c94395c844a8d5","c9d4f59298a971f8326bffd15327207a","cd430fbf9b19589a6f5a1970154b5347","ce9ff52f8114984506f73d7bb99642f9","d42ef2adb8f15a9e9c93d412a9a6edd5","d5e0703d76097c1b1c2208d5cdf25150","d9eb3610bc4cc2917c831213324d21f7","dcd0bf2e209d32d7ee835f20aecb2129","df715840853bbd65be40ddde0ceca168","e2b2f1b1698d196bba7651c6895593cc","e3cb3dff055a7c5482c9d5a63d08ffe3","e3fbb179ac3ee06d7fe9ab7f5d92f14c","e4600407b2ae4d045d647e1e656d7e34","e6237fe39eac5500b941d26e962892d4","e7f1679dd6520812a5dad5fc5e3c37ef","e8c5722c677db3dd8a6b8c8f0f296a7e","ed2ea98dc55b845e5c1af7f723b1973b","efa917b7abbd5ccfb34c8cfcae9ec983","f1873d81cd77a4512c594742242268e5","f35da48677b47996e32d83b19a8c79c7","f43dbab78c35815a7aa8ad994116d036","f8278e008166f64dddda807500768993","fa6d1582404e1431d428cd2865ee3a7b","fde8c2ac5d81c35be115aeeec9ffb406"];
 diff --git a/lib/review-feedback-contract.js b/lib/review-feedback-contract.js
-index b73ed65b..efccca5b 100644
+index b73ed65b..39bedabf 100644
 --- a/lib/review-feedback-contract.js
 +++ b/lib/review-feedback-contract.js
-@@ -24 +24 @@
+@@ -13,0 +14 @@
++const DEFAULT_REVIEW_ROUNDS = 10;
+@@ -24 +25 @@
 -  constructor(code) { super(`Review feedback rejected (${code}).`); this.code = code; }
 +  constructor(code, detail) { super(`Review feedback rejected (${code}).`); this.code = code; if (detail) this.detail = detail; }
-@@ -26 +26 @@
+@@ -26 +27 @@
 -function fail(code) { throw new ReviewFeedbackError(code); }
 +function fail(code, detail) { throw new ReviewFeedbackError(code, detail); }
+@@ -79 +80 @@
+-function validateStagedContract(v) {
++function validateStagedContract(v, legacyDefaults) {
+@@ -82,0 +84,2 @@
++  const unspecified = [];
++  let remaining = DEFAULT_REVIEW_ROUNDS;
+@@ -85 +87,0 @@
+-    if (!Object.hasOwn(s, 'maxRounds')) s.maxRounds = 3;
+@@ -87 +89,8 @@
+-    if (!Number.isInteger(s.maxRounds) || s.maxRounds < 1 || s.maxRounds > 10) fail('feedback_budget_invalid');
++    if (Object.hasOwn(s, 'maxRounds')) {
++      if (!Number.isInteger(s.maxRounds) || s.maxRounds < 1 || s.maxRounds > DEFAULT_REVIEW_ROUNDS) fail('feedback_budget_invalid');
++      remaining -= s.maxRounds;
++    } else unspecified.push(s);
++  }
++  for (const [i, stage] of unspecified.entries()) {
++    stage.maxRounds = legacyDefaults ? 3 : Math.max(1, Math.ceil(remaining / (unspecified.length - i)));
++    remaining -= stage.maxRounds;
+@@ -91 +100 @@
+-function validateContract(value) {
++function validateContract(value, { legacyDefaults = false } = {}) {
+@@ -93 +102 @@
+-  if (v && typeof v === 'object' && v.schema === CONTRACT_V2) return validateStagedContract(v);
++  if (v && typeof v === 'object' && v.schema === CONTRACT_V2) return validateStagedContract(v, legacyDefaults);
+@@ -95 +104 @@
+-  if (!Object.hasOwn(v, 'maxRounds')) v.maxRounds = 3;
++  if (!Object.hasOwn(v, 'maxRounds')) v.maxRounds = legacyDefaults ? 3 : DEFAULT_REVIEW_ROUNDS;
+@@ -283 +292 @@
+-module.exports = { CONTRACT, ROUND, CONTRACT_V2, ROUND_V2, START, SUBMIT, CONTINUED, RESUME, RESUME_SCHEMA,
++module.exports = { DEFAULT_REVIEW_ROUNDS, CONTRACT, ROUND, CONTRACT_V2, ROUND_V2, START, SUBMIT, CONTINUED, RESUME, RESUME_SCHEMA,
 diff --git a/lib/review-feedback-guidance.js b/lib/review-feedback-guidance.js
-index b1c4f091..825d5c8e 100644
+index b1c4f091..be495789 100644
 --- a/lib/review-feedback-guidance.js
 +++ b/lib/review-feedback-guidance.js
 @@ -3 +3,10 @@
@@ -5051,19 +5114,42 @@ index b1c4f091..825d5c8e 100644
 -function projectGuidance(lang) {
 -  return lang === 'en' ? '\n## Assigned reviewer protocol\n\n' + REVIEW_GUIDANCE + '\n'
 -    : '\n## 검수자가 지정된 작업\n\n작업 범위·검수자·통과 기준·최대 검수 횟수를 `leerness review-feedback start --stdin`으로 먼저 고정한다. 1차·최종 검수처럼 검수자가 여럿이면 순서 있는 단계(v2 스키마, 단계마다 검수자와 최대 검수 횟수)로 고정한다. NO GO를 낸 단계만 재검수하며, 그 단계가 통과해야 다음 단계가 시작된다. 일반 작업은 모든 단계를 합쳐 3회 이내(maxRounds 3, 또는 단계별 2회+1회)를 권장한다: 1차는 고정 범위 전체, 2차는 기존 지적 수정 여부와 관련 회귀, 3차는 남은 지적 최종 확인과 종료 판단. 횟수 소진은 GO가 아니며 미해결 차단 지적이 있으면 NEEDS_DECISION으로 멈춘다. 같은 검수 ID를 유지하고 횟수를 초기화하지 않는다.\n\n새 단계는 다른 단계나 구현이 쓰지 않은 새 세션(reviewerSession)에서 시작하며, 같은 모델이 여러 단계를 맡을 수 있고 같은 단계의 재검수는 그 단계의 세션을 이어 써도 된다. 같은 단계의 수정 재검수에는 `leerness review-feedback show REVIEW-ID --brief`, 검수한 리비전 이후의 diff와 실제 테스트 결과를 전달한다. 새 독립 최종 검수 단계에는 고정 요구사항·정확한 base/target 커밋·관련 코드·실제 테스트 결과만 먼저 제공하고, 이전 검수자의 판정·결함 목록과 개발자 자체 평가는 첫 독립 판정 기록 후 대조한다. 같은 검수 ID가 AI 대화 기억을 복원하지는 않는다. 재검수는 열린 지적 ID, 그 diff, diff가 닿는 호출 경로, 관련 회귀 테스트, 고정 기준과 실제 새 회귀·중대 위험만 보고, 수정이 새 모듈이나 데이터 경계에 닿은 부분만 넓힌다. 결과는 `submit --stdin`으로 기록한다.\n\nNO GO/FAIL이면 최종 답변 자체에 TO_GO(무엇을 수정하면 GO인지)를 수정 순서대로 번호를 매긴 체크리스트로 포함한다. 각 미해결 차단 지적의 ID·수정 대상 위치·근거와 재현 방법·통과 불가 이유·바뀌어야 할 동작을 적고, 확인 가능한 통과 조건마다 확인 방법과 GO에 필요한 검증 근거를 적는다. 이어서 아직 남은 고정 기준·회귀 확인, 남은 검수 횟수, 다음 순서를 적는다. 판정만 쓰거나 별도 로그를 보라는 말로 끝내지 않으며, CLI 없이 검수할 때도 같은 형식을 쓴다. 사용자에게는 PASS를 GO로, FAIL/NEEDS_DECISION을 NO GO로 표시하고 그 종류(수정 필요·검증 대기·판단 대기·도구 오류)를 밝힌다. 도구 오류는 그 자체로 제품 결함이 아니며, 실행하지 않은 검사는 미검증이다. 구조화된 verdict 값은 유지한다. 각 지적에 문제·근거·통과 불가 이유·필수 개선 결과·확인 가능한 통과 조건을 포함한다. 구현 힌트는 선택이며 방법은 작업자가 결정한다. 보안·데이터 손실·API 규격·표준에 따른 필수 제약은 이유와 근거를 따로 적는다.\n\n취향·UX 제안·범위 밖 요구는 후속 참고 의견으로 남기고, 이전/이후 근거가 있는 새 회귀만 차단 사유로 추가한다. MED라는 이유만으로 비차단 처리하지 않고, 드물다는 이유로 실제 데이터 손상 위험을 낮추지 않는다. 2차 이후 발견한 기존 결함이 고정 기준을 위반하면 심각도를 부풀리거나 회귀로 표시하지 말고 medium 이상의 risk-escalation으로 기록해 판단을 요청한다. 재현된 결함에는 회귀 테스트를 쓰고, 충분한 기존 테스트는 재사용하며, 변이 검사는 탐지력이 불확실한 중요 경계에만 쓰고, 같은 소스를 여러 검사 래퍼로 반복하지 않으며, 실패하는 보안·데이터 무결성 테스트를 느슨하게 만들지 않는다. `NEEDS_DECISION`이면 미해결 문제와 근거·필요한 결정을 보고하고 자동 수정을 멈춘다. 명시적인 사용자 결정과 show --json의 result.nextResumeTemplate이 있으면 leerness review-feedback resume --file <결정 파일>로 재검수 1회 결정을 기록하고 NO GO와 남은 횟수를 유지한다. 설치 도구에 resume이 없거나 도구·원장 오류가 나면 검수 도구의 차단 사유로 보고하고 독립적인 제품 작업을 계속한다. 명시적인 요청 없이 검증 도구 수정, 검수 ID 초기화, 공유 설치 갱신이나 다른 프로젝트 프로세스 중지로 작업 범위를 바꾸지 않는다. 횟수 소진을 통과로 바꾸지 않는다. 실제 신원·증거 확인과 기존 승인 절차는 별도다.\n';
-+const REVIEW_PROTOCOL = `Review protocol: before reviewing a worker's result, freeze taskId, reviewId, named reviewer provider/model, scope, criteria and maxRounds with leerness review-feedback start --stdin. For a first and a final reviewer, freeze ordered stages instead (v2 schema, each with its reviewer and maxRounds): only the stage that gave NO GO re-reviews, and the next stage starts after it passes. Keep ordinary work within 3 rounds across all stages (maxRounds 3, or stages of 2 and 1): the full frozen scope first, then the reported findings and their regressions, then a final check. A spent budget is never GO; open blockers stop as NEEDS_DECISION. Reuse the reviewId; never restart to reset its budget. A new stage starts in a new session (reviewerSession), never one used by another stage or by the implementation; the same model may serve several stages, and a re-review in the same stage may continue its session. For a repair re-review, give the reviewer leerness review-feedback show REVIEW-ID --brief, the diff since the reviewed revision and actual test results. For a fresh independent final-stage reviewer, supply frozen requirements, exact target/base commit, affected code and actual test evidence without prior reviewer verdicts, findings, or developer self-assessment until the cold inspection is recorded; reconcile after that. A review ID restores no conversation memory. A re-review checks only the open finding IDs, that diff, the call paths it affects, related regression tests, the fixed criteria and real new regressions or serious risks, widening only where the change reached a new module or data boundary. Submit with leerness review-feedback submit --stdin. The final response itself must include a TO_GO section for every NO GO/FAIL, written as a numbered checklist in fix order: for each open blocking issue its ID, affected file/component/behavior, evidence and how to reproduce it, why it fails, the required changed behavior, and each observable acceptance check with how it will be verified and the evidence needed for GO; then the fixed criteria and regression check still pending, the reviews left and the next steps. Never return only a verdict or point to a separate log; apply the same format when reviewing without the CLI. Say GO for PASS; for FAIL or NEEDS_DECISION say NO GO and which kind: fix required, verification pending, decision pending, or tool error, which is never a product defect by itself. Structured verdicts remain PASS, FAIL and NEEDS_DECISION; an unrun check is unverified. Each finding requires ISSUE, EVIDENCE, WHY_IT_FAILS, REQUIRED_OUTCOME and ACCEPTANCE_CRITERIA; IMPLEMENTATION_HINT is optional and the worker chooses the implementation. A mandatory constraint needs a security, data-loss, API-contract or standards reason and evidence. Preferences, UX ideas and out-of-scope requests are non-blocking follow-ups; only a new regression with before/after evidence adds a blocker. Judge blocking by the service's documented normal range: a display-only defect that needs an unrealistic value (a billion-item consumer order) is a low non-blocking note; money, stock, data, overflow, input, auth and crash risks still block. If the range is undocumented, ask the user one question per decision and use NEEDS_DECISION. Severity alone does not make a medium finding non-blocking, and rarity does not lower real data-loss risk. A pre-existing defect found after the first round that breaks a frozen criterion is a medium-or-higher risk-escalation that stops for a decision, not an inflated severity or a regression. PASS requires every fixed criterion and the regression check to pass with no open blocker. Add a regression test for a reproduced defect, reuse adequate tests, keep mutation testing for critical boundaries of uncertain detection, run one source through one check, and never weaken a failing security or data-integrity test. On NEEDS_DECISION stop automatic revisions and report open issues, evidence and required decisions. With an explicit owner instruction and an eligible result.nextResumeTemplate from show --json, record one re-review decision with leerness review-feedback resume --file <decision file>; NO GO and the remaining budget stay. If the installed tool lacks resume or reports a tool/ledger error, report a tooling blocker and continue independent product work. Do not switch to modifying the verification tool, reset review IDs, update shared installations or stop other projects unless explicitly requested; never auto-pass or silently change the baseline. References and identity declarations are not verified execution or release approval.`;
++const REVIEW_PROTOCOL = `Review protocol: before reviewing a worker's result, freeze taskId, reviewId, named reviewer provider/model, scope, criteria and maxRounds with leerness review-feedback start --stdin. For a first and a final reviewer, freeze ordered stages instead (v2 schema, each with its reviewer and maxRounds): only the stage that gave NO GO re-reviews, and the next stage starts after it passes. Use a total budget of 10 rounds for ordinary work. In the first round inspect every frozen criterion, changed entry point and affected data path and report all evidenced blockers together. Reuse the current stage session to verify fixes and affected regressions. Finish as soon as the criteria pass. A spent budget is never GO; open blockers stop as NEEDS_DECISION. Reuse the reviewId; never restart to reset its budget. A new stage starts in a new session (reviewerSession), never one used by another stage or by the implementation; the same model may serve several stages, and a re-review in the same stage may continue its session. For a repair re-review, give the reviewer leerness review-feedback show REVIEW-ID --brief, the diff since the reviewed revision and actual test results. For a fresh independent final-stage reviewer, supply frozen requirements, exact target/base commit, affected code and actual test evidence without prior reviewer verdicts, findings, or developer self-assessment until the cold inspection is recorded; reconcile after that. A review ID restores no conversation memory. A re-review checks only the open finding IDs, that diff, the call paths it affects, related regression tests, the fixed criteria and real new regressions or serious risks, widening only where the change reached a new module or data boundary. Submit with leerness review-feedback submit --stdin. The final response itself must include a TO_GO section for every NO GO/FAIL, written as a numbered checklist in fix order: for each open blocking issue its ID, affected file/component/behavior, evidence and how to reproduce it, why it fails, the required changed behavior, and each observable acceptance check with how it will be verified and the evidence needed for GO; then the fixed criteria and regression check still pending, the reviews left and the next steps. Never return only a verdict or point to a separate log; apply the same format when reviewing without the CLI. Say GO for PASS; for FAIL or NEEDS_DECISION say NO GO and which kind: fix required, verification pending, decision pending, or tool error, which is never a product defect by itself. Structured verdicts remain PASS, FAIL and NEEDS_DECISION; an unrun check is unverified. Each finding requires ISSUE, EVIDENCE, WHY_IT_FAILS, REQUIRED_OUTCOME and ACCEPTANCE_CRITERIA; IMPLEMENTATION_HINT is optional and the worker chooses the implementation. A mandatory constraint needs a security, data-loss, API-contract or standards reason and evidence. Preferences, UX ideas and out-of-scope requests are non-blocking follow-ups; only a new regression with before/after evidence adds a blocker. Judge blocking by the service's documented normal range: a display-only defect that needs an unrealistic value (a billion-item consumer order) is a low non-blocking note; money, stock, data, overflow, input, auth and crash risks still block. If the range is undocumented, ask the user one question per decision and use NEEDS_DECISION. Severity alone does not make a medium finding non-blocking, and rarity does not lower real data-loss risk. A pre-existing defect found after the first round that breaks a frozen criterion is a medium-or-higher risk-escalation that stops for a decision, not an inflated severity or a regression. PASS requires every fixed criterion and the regression check to pass with no open blocker. Add a regression test for a reproduced defect, reuse adequate tests, keep mutation testing for critical boundaries of uncertain detection, run one source through one check, and never weaken a failing security or data-integrity test. On NEEDS_DECISION stop automatic revisions and report open issues, evidence and required decisions. With an explicit owner instruction and an eligible result.nextResumeTemplate from show --json, record one re-review decision with leerness review-feedback resume --file <decision file>; NO GO and the remaining budget stay. If the installed tool lacks resume or reports a tool/ledger error, report a tooling blocker and continue independent product work. Do not switch to modifying the verification tool, reset review IDs, update shared installations or stop other projects unless explicitly requested; never auto-pass or silently change the baseline. References and identity declarations are not verified execution or release approval.`;
 +const REVIEW_GUIDANCE = REVIEW_PROTOCOL + ' ' + REVIEW_COVERAGE_INSTRUCTIONS.join(' ');
 +
 +function projectGuidance(lang, { coverage = true } = {}) {
 +  return lang === 'en' ? '\n## Assigned reviewer protocol\n\n' + (coverage ? REVIEW_GUIDANCE : REVIEW_PROTOCOL) + '\n'
-+    : '\n## 검수자가 지정된 작업\n\n작업 범위·검수자·통과 기준·최대 검수 횟수를 `leerness review-feedback start --stdin`으로 먼저 고정한다. 1차·최종 검수처럼 검수자가 여럿이면 순서 있는 단계(v2 스키마, 단계마다 검수자와 최대 검수 횟수)로 고정한다. NO GO를 낸 단계만 재검수하며, 그 단계가 통과해야 다음 단계가 시작된다. 일반 작업은 모든 단계를 합쳐 3회 이내(maxRounds 3, 또는 단계별 2회+1회)를 권장한다: 1차는 고정 범위 전체, 2차는 기존 지적 수정 여부와 관련 회귀, 3차는 남은 지적 최종 확인과 종료 판단. 횟수 소진은 GO가 아니며 미해결 차단 지적이 있으면 NEEDS_DECISION으로 멈춘다. 같은 검수 ID를 유지하고 횟수를 초기화하지 않는다.\n\n새 단계는 다른 단계나 구현이 쓰지 않은 새 세션(reviewerSession)에서 시작하며, 같은 모델이 여러 단계를 맡을 수 있고 같은 단계의 재검수는 그 단계의 세션을 이어 써도 된다. 같은 단계의 수정 재검수에는 `leerness review-feedback show REVIEW-ID --brief`, 검수한 리비전 이후의 diff와 실제 테스트 결과를 전달한다. 새 독립 최종 검수 단계에는 고정 요구사항·정확한 base/target 커밋·관련 코드·실제 테스트 결과만 먼저 제공하고, 이전 검수자의 판정·결함 목록과 개발자 자체 평가는 첫 독립 판정 기록 후 대조한다. 같은 검수 ID가 AI 대화 기억을 복원하지는 않는다. 재검수는 열린 지적 ID, 그 diff, diff가 닿는 호출 경로, 관련 회귀 테스트, 고정 기준과 실제 새 회귀·중대 위험만 보고, 수정이 새 모듈이나 데이터 경계에 닿은 부분만 넓힌다. 결과는 `submit --stdin`으로 기록한다.\n\nNO GO/FAIL이면 최종 답변 자체에 TO_GO(무엇을 수정하면 GO인지)를 수정 순서대로 번호를 매긴 체크리스트로 포함한다. 각 미해결 차단 지적의 ID·수정 대상 위치·근거와 재현 방법·통과 불가 이유·바뀌어야 할 동작을 적고, 확인 가능한 통과 조건마다 확인 방법과 GO에 필요한 검증 근거를 적는다. 이어서 아직 남은 고정 기준·회귀 확인, 남은 검수 횟수, 다음 순서를 적는다. 판정만 쓰거나 별도 로그를 보라는 말로 끝내지 않으며, CLI 없이 검수할 때도 같은 형식을 쓴다. 사용자에게는 PASS를 GO로, FAIL/NEEDS_DECISION을 NO GO로 표시하고 그 종류(수정 필요·검증 대기·판단 대기·도구 오류)를 밝힌다. 도구 오류는 그 자체로 제품 결함이 아니며, 실행하지 않은 검사는 미검증이다. 구조화된 verdict 값은 유지한다. 각 지적에 문제·근거·통과 불가 이유·필수 개선 결과·확인 가능한 통과 조건을 포함한다. 구현 힌트는 선택이며 방법은 작업자가 결정한다. 보안·데이터 손실·API 규격·표준에 따른 필수 제약은 이유와 근거를 따로 적는다.\n\n취향·UX 제안·범위 밖 요구는 후속 참고 의견으로 남기고, 이전/이후 근거가 있는 새 회귀만 차단 사유로 추가한다. 차단 여부는 문서에 정한 서비스의 정상 범위로 판단한다. 소비자 주문 10억 개처럼 비현실적인 값에서만 생기는 표시 결함은 low 비차단 의견이고, 금액·재고·데이터·오버플로·입력·권한·장애 위험은 그대로 차단한다. 범위가 문서에 없으면 결정마다 질문 하나로 사용자에게 묻고 NEEDS_DECISION으로 둔다. MED라는 이유만으로 비차단 처리하지 않고, 드물다는 이유로 실제 데이터 손상 위험을 낮추지 않는다. 2차 이후 발견한 기존 결함이 고정 기준을 위반하면 심각도를 부풀리거나 회귀로 표시하지 말고 medium 이상의 risk-escalation으로 기록해 판단을 요청한다. 재현된 결함에는 회귀 테스트를 쓰고, 충분한 기존 테스트는 재사용하며, 변이 검사는 탐지력이 불확실한 중요 경계에만 쓰고, 같은 소스를 여러 검사 래퍼로 반복하지 않으며, 실패하는 보안·데이터 무결성 테스트를 느슨하게 만들지 않는다. `NEEDS_DECISION`이면 미해결 문제와 근거·필요한 결정을 보고하고 자동 수정을 멈춘다. 명시적인 사용자 결정과 show --json의 result.nextResumeTemplate이 있으면 leerness review-feedback resume --file <결정 파일>로 재검수 1회 결정을 기록하고 NO GO와 남은 횟수를 유지한다. 설치 도구에 resume이 없거나 도구·원장 오류가 나면 검수 도구의 차단 사유로 보고하고 독립적인 제품 작업을 계속한다. 명시적인 요청 없이 검증 도구 수정, 검수 ID 초기화, 공유 설치 갱신이나 다른 프로젝트 프로세스 중지로 작업 범위를 바꾸지 않는다. 횟수 소진을 통과로 바꾸지 않는다. 실제 신원·증거 확인과 기존 승인 절차는 별도다.\n' + (coverage ? '\n## 범위 내 일괄 점검\n\n' + REVIEW_COVERAGE_KO + '\n' : '');
++    : '\n## 검수자가 지정된 작업\n\n작업 범위·검수자·통과 기준·최대 검수 횟수를 `leerness review-feedback start --stdin`으로 먼저 고정한다. 1차·최종 검수처럼 검수자가 여럿이면 순서 있는 단계(v2 스키마, 단계마다 검수자와 최대 검수 횟수)로 고정한다. NO GO를 낸 단계만 재검수하며, 그 단계가 통과해야 다음 단계가 시작된다. 일반 작업의 검수 예산은 모든 단계를 합쳐 10회다. 첫 검수에서 고정 기준 전체와 변경된 진입점·데이터 경로를 점검하고 근거가 있는 차단 지적을 한꺼번에 기록한다. 같은 단계의 세션을 이어서 수정 사항과 영향받는 회귀를 확인하고 통과 기준을 충족하면 즉시 종료한다. 횟수 소진은 GO가 아니며 미해결 차단 지적이 있으면 NEEDS_DECISION으로 멈춘다. 같은 검수 ID를 유지하고 횟수를 초기화하지 않는다.\n\n새 단계는 다른 단계나 구현이 쓰지 않은 새 세션(reviewerSession)에서 시작하며, 같은 모델이 여러 단계를 맡을 수 있고 같은 단계의 재검수는 그 단계의 세션을 이어 써도 된다. 같은 단계의 수정 재검수에는 `leerness review-feedback show REVIEW-ID --brief`, 검수한 리비전 이후의 diff와 실제 테스트 결과를 전달한다. 새 독립 최종 검수 단계에는 고정 요구사항·정확한 base/target 커밋·관련 코드·실제 테스트 결과만 먼저 제공하고, 이전 검수자의 판정·결함 목록과 개발자 자체 평가는 첫 독립 판정 기록 후 대조한다. 같은 검수 ID가 AI 대화 기억을 복원하지는 않는다. 재검수는 열린 지적 ID, 그 diff, diff가 닿는 호출 경로, 관련 회귀 테스트, 고정 기준과 실제 새 회귀·중대 위험만 보고, 수정이 새 모듈이나 데이터 경계에 닿은 부분만 넓힌다. 결과는 `submit --stdin`으로 기록한다.\n\nNO GO/FAIL이면 최종 답변 자체에 TO_GO(무엇을 수정하면 GO인지)를 수정 순서대로 번호를 매긴 체크리스트로 포함한다. 각 미해결 차단 지적의 ID·수정 대상 위치·근거와 재현 방법·통과 불가 이유·바뀌어야 할 동작을 적고, 확인 가능한 통과 조건마다 확인 방법과 GO에 필요한 검증 근거를 적는다. 이어서 아직 남은 고정 기준·회귀 확인, 남은 검수 횟수, 다음 순서를 적는다. 판정만 쓰거나 별도 로그를 보라는 말로 끝내지 않으며, CLI 없이 검수할 때도 같은 형식을 쓴다. 사용자에게는 PASS를 GO로, FAIL/NEEDS_DECISION을 NO GO로 표시하고 그 종류(수정 필요·검증 대기·판단 대기·도구 오류)를 밝힌다. 도구 오류는 그 자체로 제품 결함이 아니며, 실행하지 않은 검사는 미검증이다. 구조화된 verdict 값은 유지한다. 각 지적에 문제·근거·통과 불가 이유·필수 개선 결과·확인 가능한 통과 조건을 포함한다. 구현 힌트는 선택이며 방법은 작업자가 결정한다. 보안·데이터 손실·API 규격·표준에 따른 필수 제약은 이유와 근거를 따로 적는다.\n\n취향·UX 제안·범위 밖 요구는 후속 참고 의견으로 남기고, 이전/이후 근거가 있는 새 회귀만 차단 사유로 추가한다. 차단 여부는 문서에 정한 서비스의 정상 범위로 판단한다. 소비자 주문 10억 개처럼 비현실적인 값에서만 생기는 표시 결함은 low 비차단 의견이고, 금액·재고·데이터·오버플로·입력·권한·장애 위험은 그대로 차단한다. 범위가 문서에 없으면 결정마다 질문 하나로 사용자에게 묻고 NEEDS_DECISION으로 둔다. MED라는 이유만으로 비차단 처리하지 않고, 드물다는 이유로 실제 데이터 손상 위험을 낮추지 않는다. 2차 이후 발견한 기존 결함이 고정 기준을 위반하면 심각도를 부풀리거나 회귀로 표시하지 말고 medium 이상의 risk-escalation으로 기록해 판단을 요청한다. 재현된 결함에는 회귀 테스트를 쓰고, 충분한 기존 테스트는 재사용하며, 변이 검사는 탐지력이 불확실한 중요 경계에만 쓰고, 같은 소스를 여러 검사 래퍼로 반복하지 않으며, 실패하는 보안·데이터 무결성 테스트를 느슨하게 만들지 않는다. `NEEDS_DECISION`이면 미해결 문제와 근거·필요한 결정을 보고하고 자동 수정을 멈춘다. 명시적인 사용자 결정과 show --json의 result.nextResumeTemplate이 있으면 leerness review-feedback resume --file <결정 파일>로 재검수 1회 결정을 기록하고 NO GO와 남은 횟수를 유지한다. 설치 도구에 resume이 없거나 도구·원장 오류가 나면 검수 도구의 차단 사유로 보고하고 독립적인 제품 작업을 계속한다. 명시적인 요청 없이 검증 도구 수정, 검수 ID 초기화, 공유 설치 갱신이나 다른 프로젝트 프로세스 중지로 작업 범위를 바꾸지 않는다. 횟수 소진을 통과로 바꾸지 않는다. 실제 신원·증거 확인과 기존 승인 절차는 별도다.\n' + (coverage ? '\n## 범위 내 일괄 점검\n\n' + REVIEW_COVERAGE_KO + '\n' : '');
 @@ -19 +31 @@
 -module.exports = { REVIEW_GUIDANCE, projectGuidance, pointer };
 +module.exports = { REVIEW_GUIDANCE, REVIEW_COVERAGE_INSTRUCTIONS, projectGuidance, pointer };
+diff --git a/lib/review-feedback-report.js b/lib/review-feedback-report.js
+index 992e2e4d..a5af761c 100644
+--- a/lib/review-feedback-report.js
++++ b/lib/review-feedback-report.js
+@@ -81 +80,0 @@
+-const RECOMMENDED_REVIEW_ROUNDS = 3;
+@@ -86 +85 @@
+-  return { roundsUsed: used, maxRounds, remaining: Math.max(0, remaining), recommendedMax: RECOMMENDED_REVIEW_ROUNDS };
++  return { roundsUsed: used, maxRounds, remaining: Math.max(0, remaining), recommendedMax: C.DEFAULT_REVIEW_ROUNDS };
+@@ -125 +124 @@
+-      remainingRounds: maxRounds - used, newSession: staged, reuseAttempt: !changesNeeded && !state.resumePermit && state.rounds.length > 0,
++      remainingRounds: maxRounds - used, newSession: staged && used === 0, reuseAttempt: !changesNeeded && !state.resumePermit && state.rounds.length > 0,
+@@ -188 +187 @@
+-      + `${!s.newSession ? '' : s.continueSession ? `, continuing this stage's session ${s.continueSession} where available (otherwise a session not used by another stage or the implementation)` : ', in a session not used by another stage or the implementation'}`
++      + `${s.continueSession ? `, continuing this stage's session ${s.continueSession} where available (otherwise a session not used by another stage or the implementation)` : s.newSession ? ', in a session not used by another stage or the implementation' : ''}`
+@@ -233 +232 @@
+-      + `${!s.newSession ? '' : s.continueSession ? `, 가능하면 이 단계가 쓴 세션 ${s.continueSession}을 이어서(아니면 다른 단계·구현이 쓰지 않은 세션에서)` : ', 다른 단계·구현이 쓰지 않은 세션에서'}`
++      + `${s.continueSession ? `, 가능하면 이 단계가 쓴 세션 ${s.continueSession}을 이어서(아니면 다른 단계·구현이 쓰지 않은 세션에서)` : s.newSession ? ', 다른 단계·구현이 쓰지 않은 세션에서' : ''}`
 diff --git a/lib/review-feedback-transport.js b/lib/review-feedback-transport.js
-index 9518b04e..0fcb540a 100644
+index 9518b04e..9bb92b00 100644
 --- a/lib/review-feedback-transport.js
 +++ b/lib/review-feedback-transport.js
+@@ -12,2 +12,2 @@
+-  + 'Start freezes a named reviewer, scope, criteria and maxRounds (1..10; suggested 3), or with the v2 schema an\n'
+-  + 'ordered list of stages (for example a first and a final reviewer), each with its reviewer and maxRounds.\n'
++  + 'Start freezes a named reviewer, scope, criteria and maxRounds (1..10, default 10), or with the v2 schema an\n'
++  + 'ordered list of stages (for example a first and a final reviewer), sharing 10 rounds by default across their reviewers.\n'
 @@ -48,2 +48,4 @@
 -  if (argv.length === 1 && ['--help', '-h'].includes(argv[0])) { output.write(USAGE); return 0; }
 -  let result, code = 2;
@@ -5097,9 +5183,12 @@ index 9518b04e..0fcb540a 100644
 +      : error instanceof C.ReviewFeedbackError && typeof error.detail === 'string' ? { detail: error.detail } : {};
 +    result = JSON.stringify({ ok: false, error: { code: error.code || 'feedback_failed', kind: errorKind(error), ...help }, approvalGranted: false }) + '\n';
 diff --git a/lib/review-feedback.js b/lib/review-feedback.js
-index bb104353..5bf50e09 100644
+index bb104353..315ee522 100644
 --- a/lib/review-feedback.js
 +++ b/lib/review-feedback.js
+@@ -24 +24 @@
+-      const c = C.validateContract(e.feedbackContract);
++      const c = C.validateContract(e.feedbackContract, { legacyDefaults: true });
 @@ -50,2 +50,5 @@
 -  if (candidates.length !== 1 || candidates[0].taskId !== contract.taskId) C.fail('feedback_implementation_missing');
 -  if (candidates[0].executed !== true) C.fail('feedback_implementation_not_executed');
@@ -5108,6 +5197,12 @@ index bb104353..5bf50e09 100644
 +  if (candidates.length > 1) C.fail('feedback_implementation_missing', `${candidates.length} execution events share attempt ${attempt}; submit the round with an implementationAttemptId that names one attempt`);
 +  if (candidates[0].taskId !== contract.taskId) C.fail('feedback_implementation_missing', `attempt ${attempt} was recorded for task ${String(candidates[0].taskId).slice(0, 200)}, but this review is for task ${task}`);
 +  if (candidates[0].executed !== true) C.fail('feedback_implementation_not_executed', `attempt ${attempt} is in the ledger without executed=true; record the finished attempt with leerness agents record completed (or failed)`);
+@@ -122 +125,4 @@
+-      if (C.stable(existing.contract) !== C.stable(c)) C.fail('feedback_contract_changed');
++      const frozen = C.stable(existing.contract);
++      if (frozen !== C.stable(c) && frozen !== C.stable(C.validateContract(input, { legacyDefaults: true }))) {
++        C.fail('feedback_contract_changed');
++      }
 diff --git a/lib/review-request.js b/lib/review-request.js
 index 2d96d82f..af103ad9 100644
 --- a/lib/review-request.js
@@ -5220,11 +5315,14 @@ index 47e7a267..4c731cd2 100644
 -    : input.source === 'legacy' ? 'legacy' : prepared.snapshot && !prepared.snapshot.exists ? 'rebuildable' : 'consistent' };
 +    : prepared.snapshot && !prepared.snapshot.exists ? 'rebuildable' : 'consistent' };
 diff --git a/lib/task-review-assessment.js b/lib/task-review-assessment.js
-index 7ed49e46..66bdd482 100644
+index 7ed49e46..68c1a16c 100644
 --- a/lib/task-review-assessment.js
 +++ b/lib/task-review-assessment.js
 @@ -3,0 +4 @@
 +const { REVIEW_COVERAGE_INSTRUCTIONS } = require('./review-feedback-guidance');
+@@ -10 +11 @@
+-const LIMITS = Object.freeze({ elapsedHours: 48, checkpoints: 3, noProgress: 2, repeatFailures: 2, reviewRounds: 3, executedValidationMs: 1800000 });
++const LIMITS = Object.freeze({ elapsedHours: 48, checkpoints: 3, noProgress: 2, repeatFailures: 2, reviewRounds: 10, executedValidationMs: 1800000 });
 @@ -194 +195 @@
 -    instructions: ['Read the pinned code and requirements, including directly affected call paths.', 'Identify reproducible defects and separate observed failures from hypotheses.', 'Do not modify product code or test acceptance criteria.', 'Report PASS, FAIL or INCONCLUSIVE with evidence; no verdict grants release approval.'],
 +    instructions: ['Read the pinned code and requirements, including directly affected call paths.', 'Identify reproducible defects and separate observed failures from hypotheses.', 'Do not modify product code or test acceptance criteria.', 'Report PASS, FAIL or INCONCLUSIVE with evidence; no verdict grants release approval.', ...REVIEW_COVERAGE_INSTRUCTIONS],
@@ -5509,6 +5607,38 @@ index c896169d..c756cc46 100644
 -    assert.ok(path.basename(resolved).startsWith('leerness-context-reading-'));removeTree(resolved, { recursive: true, force: true });
 -  }
 +  require('./temp-cleanup').runIsolatedWorker(__filename, 'leerness-context-reading-', 'CONTEXT_READING_ROOT', 3600000);
+diff --git a/scripts/derived-input-publication-probe.js b/scripts/derived-input-publication-probe.js
+index e7ecb3d9..a27ab150 100644
+--- a/scripts/derived-input-publication-probe.js
++++ b/scripts/derived-input-publication-probe.js
+@@ -32 +32,11 @@
+-test('graph normal HTML and injection neutralization remain valid',()=>{const f=fixture(),out=path.join(f.root,'leerness.html');f.put('decisions.json',JSON.stringify([{id:'D-0001',decision:'Owner </script> source'}]));const r=graph.graphHtmlCmd(f.root,deps(),out),text=fs.readFileSync(out,'utf8');assert(r.ok);assert(text.includes('T-0001'));assert.equal((text.match(/<\/script>/g)||[]).length,1);const data=JSON.parse(text.match(/var DATA = (\{[^]*?\});/)[1]);assert.equal(data.nodes.find(n=>n.id==='D-0001').label,'Owner </script> source');});
++test('graph normal HTML and injection neutralization remain valid', () => {
++  const f = fixture(), out = path.join(f.root, 'leerness.html');
++  const decision = 'Owner </script> source';
++  f.put('decisions.md', decision);
++  assert.ok(graph.graphHtmlCmd(f.root, deps(), out).ok);
++  const text = fs.readFileSync(out, 'utf8');
++  assert.equal((text.match(/<\/script>/g) || []).length, 1);
++  const data = JSON.parse(/^var DATA = (.+);$/m.exec(text)[1]);
++  assert.ok(data.roadmap.tasks.some(t => t.id === 'T-0001'));
++  assert.equal(data.docs.files.find(f => f.key === 'decisions').text, decision);
++});
+@@ -37 +47,13 @@
+-function sessionWrite(fn){const old={};for(const key of ['LEERNESS_INTERNAL','LEERNESS_SESSION_ID','LEERNESS_NO_LOCK_WARN'])old[key]=process.env[key];delete process.env.LEERNESS_INTERNAL;process.env.LEERNESS_SESSION_ID='session-0001';process.env.LEERNESS_NO_LOCK_WARN='1';try{return fn();}finally{for(const[key,value]of Object.entries(old))if(value===undefined)delete process.env[key];else process.env[key]=value;}}
++function sessionWrite(fn) {
++  const keys = ['LEERNESS_INTERNAL', 'LEERNESS_SESSION_ID', 'LEERNESS_NO_LOCK_WARN', 'CI', 'GITHUB_ACTIONS'];
++  const prior = new Map(keys.map(key => [key, process.env[key]]));
++  for (const key of keys) delete process.env[key];
++  process.env.LEERNESS_SESSION_ID = 'session-0001';
++  process.env.LEERNESS_NO_LOCK_WARN = '1';
++  try { return fn(); } finally {
++    for (const [key, value] of prior) {
++      if (value === undefined) delete process.env[key];
++      else process.env[key] = value;
++    }
++  }
++}
 diff --git a/scripts/e2e-command-surface.js b/scripts/e2e-command-surface.js
 index 2f3db9e1..b6547e06 100644
 --- a/scripts/e2e-command-surface.js
@@ -5517,7 +5647,7 @@ index 2f3db9e1..b6547e06 100644
 -    await waitForOutput(webhook, /listening on port/);
 +    await waitForOutput(webhook, new RegExp(`listening on 127\\.0\\.0\\.1:${port}\\b`));
 diff --git a/scripts/e2e.js b/scripts/e2e.js
-index 99ed0e10..bc7e6abb 100644
+index 99ed0e10..65ff956b 100644
 --- a/scripts/e2e.js
 +++ b/scripts/e2e.js
 @@ -519 +519 @@
@@ -5566,14 +5696,24 @@ index 99ed0e10..bc7e6abb 100644
 @@ -5628 +5628 @@
 -  console.log(ok ? '✓ B(1.9.367) UR-0025: _mergeEnvLines 분리 — migrate 가 사용자 .env 값 key-aware 보존' : '✗ env merge 보존 실패');
 +  console.log(ok ? '✓ B(1.9.367) init/migrate 가 기존 .env 를 바이트 그대로 두고 .env.example 을 만들지 않음' : '✗ .env 보존/미생성 실패');
-@@ -8697 +8697 @@
+@@ -7899 +7899,5 @@
+-    const tabOk = html.includes('data-v="tech"') && !html.includes('data-v="toggles"') && !html.includes('tgFlip') && html.includes('leerness toggle set') && html.includes('supabase');
++    const snapshot = JSON.parse(/^var DATA = (.+);$/m.exec(html)[1]);
++    const stored = snapshot.docs.files.find(f => f.key === 'tech' && f.rel === '.leerness/tech-profile.json');
++    const profile = JSON.parse(stored.text);
++    const tabOk = html.includes('data-route="documents"') && profile.current.services.some(s => s.id === 'supabase')
++      && !profile.current.services.some(s => s.id === 'stripe') && profile.history.length === 1;
+@@ -7904 +7908 @@
+-  console.log(ok ? '✓ B(1.36.53) UR-0062: tech 언어·서비스 감지 + 마이그레이션 이력 diff + handoff 자동갱신 + 그래프 🛠 탭(스위치 제거·CLI 가이드)' : '✗ tech 프로필 실패');
++  console.log(ok ? '✓ B(1.36.53) UR-0062: tech 언어·서비스 감지 + 마이그레이션 이력 diff + handoff 자동갱신 + 그래프 문서의 기술 프로필' : '✗ tech 프로필 실패');
+@@ -8697 +8701 @@
 -    A3 = !/인증 확인 \(1\.36\.91\)/.test(R(['agents', 'list', '--path', d]).o) && listNoAuth
 +    A3 = !/## 인증 확인/.test(R(['agents', 'list', '--path', d]).o) && listNoAuth
-@@ -9076 +9076,2 @@
+@@ -9076 +9080,2 @@
 -    const wired = html.includes('data-v="docs"') && /"docs":\{/.test(html) && html.includes('세션 핸드오프');
 +    const wired = html.includes('data-route="documents">문서·설정') && /"docs":\{/.test(html)
 +      && html.includes('id="source-search"') && html.includes('.leerness/session-handoff.md');
-@@ -9212,0 +9214,8 @@
+@@ -9212,0 +9218,8 @@
 +    fs.writeFileSync(path.join(H, 'rules.md'), '# 사용자 규칙\n작업 전에 계획을 읽는다.\n');
 +    fs.writeFileSync(path.join(H, 'agent-roles.json'), JSON.stringify({ reviewer: 'test-reviewer' }));
 +    fs.writeFileSync(path.join(H, 'leerness-config.json'), JSON.stringify({
@@ -5582,7 +5722,7 @@ index 99ed0e10..bc7e6abb 100644
 +      LEERNESS_SKILL_DISCOVER_URL: { invalid: 'NONSCALAR_CONFIG_IGNORED' },
 +      CUSTOM_CONFIG_VALUE: 'UNSUPPORTED_CONFIG_IGNORED',
 +    }));
-@@ -9217 +9226,6 @@
+@@ -9217 +9230,6 @@
 -    const T2 = D2.files.length === 7 && D2.at === '2026-07-31T12:34:56.000Z'
 +    const T2 = D2.files.length === G.DOC_FILES.length && D2.at === '2026-07-31T12:34:56.000Z'
 +      && g('rules').group === '규칙·정책' && g('rules').text.includes('작업 전에 계획을 읽는다.')
@@ -5590,10 +5730,10 @@ index 99ed0e10..bc7e6abb 100644
 +      && JSON.parse(g('config').text).LEERNESS_ENABLE_CODEX === true
 +      && JSON.parse(g('config').text).LEERNESS_OLLAMA_MODEL === 'fixture-model'
 +      && !_blob.includes('UNSUPPORTED_CONFIG_IGNORED') && !_blob.includes('NONSCALAR_CONFIG_IGNORED')
-@@ -9472 +9486 @@
+@@ -9472 +9490 @@
 -      && S2.files.every(x => x.skipped || x.missing || x.guarded || Buffer.byteLength(x.text || '', 'utf8') >= 256)
 +      && S2.files.filter(x => x.truncated && !x.skipped).every(x => Buffer.byteLength(x.text || '', 'utf8') >= 256)
-@@ -9493,2 +9507,2 @@
+@@ -9493,2 +9511,2 @@
 -      && /'\+\(f\.chars\|\|0\)\+'\/'\+\(f\.charsTotal\|\|0\)\+'자\(/.test(html)
 -      && !/\(f\.text\|\|''\)\.length\+'\/'/.test(html);
 +      && /\(entry\.chars \|\| 0\) \+ '\/' \+ \(entry\.charsTotal \|\| 0\)/.test(html)
@@ -6000,6 +6140,22 @@ index 235f467b..1e31cd4b 100644
 +  check('init, migrate and update keep owner .env/.env.example byte-identical without printing values',
 +    envFailures.length === 0 && envChanged.length === 0 && envLeaks.length === 0,
 +    `failed=${envFailures.map(({ args, result }) => `${args[0]}:${result.status} ${(result.stderr || result.stdout).slice(-300)}`).join(' | ')} changed=${envChanged.join(',')} leaked=${envLeaks.map(({ args }) => args[0]).join(',')}`);
+diff --git a/scripts/lean-readonly-probe.js b/scripts/lean-readonly-probe.js
+index 9aff019e..08fbd31d 100644
+--- a/scripts/lean-readonly-probe.js
++++ b/scripts/lean-readonly-probe.js
+@@ -238 +238 @@
+-const LOOP_STOP = /^LOOP STOP L-0001 "stopped subject" 3\/3 rounds - owner decision required: leerness loop status L-0001$/m;
++const LOOP_STOP = /^LOOP STOP L-0001 "stopped subject" 3\/10 rounds - owner decision required: leerness loop status L-0001$/m;
+@@ -242 +242 @@
+-  assert.deepEqual(['a', 'b', 'c'].map(spot => run(['loop', 'round', 'L-0001', '--spot', spot]).status), [0, 0, 3]);
++  assert.deepEqual(['a', 'a', 'a'].map(spot => run(['loop', 'round', 'L-0001', '--spot', spot]).status), [0, 0, 3]);
+@@ -262 +262 @@
+-      stopped: [{ id: 'L-0001', subject: 'stopped subject', rounds: 3, cap: 3, reason: 'cap_reached' }] }));
++      stopped: [{ id: 'L-0001', subject: 'stopped subject', rounds: 3, cap: 10, reason: 'same_spot' }] }));
+@@ -288 +288 @@
+-  const stopped = [{ id: 'L-0001', subject: 'stopped subject', rounds: 3, cap: 3, reason: 'cap_reached' }];
++  const stopped = [{ id: 'L-0001', subject: 'stopped subject', rounds: 3, cap: 10, reason: 'same_spot' }];
 diff --git a/scripts/legacy-adapter-publication-probe.js b/scripts/legacy-adapter-publication-probe.js
 index 50e85596..0df3307c 100644
 --- a/scripts/legacy-adapter-publication-probe.js
@@ -6011,12 +6167,66 @@ index 50e85596..0df3307c 100644
 -test('handoff diagnostic does not swallow unavailable API adapter', () => { const f = fixture(); gap(f.file('api-skills/service.md'), skill('Owner')); const before = bytes(f.root), result = run(f, ['handoff', '--detailed', '--json']); assert.equal(result.status, 1, result.stdout + result.stderr); assert.equal(JSON.parse(result.stdout).ok, false); assert.deepEqual(bytes(f.root), before); });
 +test('handoff diagnostic does not swallow unavailable API adapter', () => { const f = fixture(); gap(f.file('api-skills/service.md'), skill('Owner')); const before = bytes(f.root), result = run(f, ['handoff', '--inspect', '--json']); assert.equal(result.status, 1, result.stdout + result.stderr); const data = JSON.parse(result.stdout); assert.equal(data.ok, false); assert.match(data.error, /api-skills|Stored artifact publication/i, result.stdout); assert.deepEqual(bytes(f.root), before); });
 diff --git a/scripts/loop-guard-probe.js b/scripts/loop-guard-probe.js
-index ba2bc4df..d9e86094 100644
+index ba2bc4df..9afee44e 100644
 --- a/scripts/loop-guard-probe.js
 +++ b/scripts/loop-guard-probe.js
 @@ -5 +5 @@
 -// Loop guard (.leerness/loop-guard-design-20261025.md section 7.1): rows LG1-LG7, LG9, LG10, LG12 (U1a) and LG8, LG11 (U1b).
 +// Loop guard (.leerness/loop-guard-design-20261025.md section 7.1): rows LG1-LG18.
+@@ -103 +103 @@
+-    open: (id, s) => `LOOP ${id} opened: "${s}" (cap 3). After each completed failed cycle: leerness loop round ${id} --spot <key>`,
++    open: (id, s) => `LOOP ${id} opened: "${s}" (cap 10). After each completed failed cycle: leerness loop round ${id} --spot <key>`,
+@@ -114 +114 @@
+-    open: (id, s) => `LOOP ${id} 열림: "${s}" (한도 3회). 끝난 실패 회차마다: leerness loop round ${id} --spot <key>`,
++    open: (id, s) => `LOOP ${id} 열림: "${s}" (한도 10회). 끝난 실패 회차마다: leerness loop round ${id} --spot <key>`,
+@@ -160,0 +161 @@
++  seedLegacyLoops(dir, [S]);
+@@ -202 +203 @@
+-  check('fixture: open', loop(main, ['open', 'stress subject']).status === 0);
++  seedLegacyLoops(main, ['stress subject']);
+@@ -215,0 +217 @@
++  seedLegacyLoops(dir, ['alpha']);
+@@ -274 +276 @@
+-  loop(dir, ['round', 'L-0001', '--spot', 's2']);
++  loop(dir, ['round', 'L-0001', '--spot', 's1']);
+@@ -289,0 +292,20 @@
++function seedLegacyLoops(dir, subjects) {
++  seed(dir, subjects.map((subject, i) => ({ ...emptyLoop(i + 1), subject, subjectKey: subject.toLowerCase() })));
++}
++row('LG19', 'New ten-round budgets alongside frozen legacy budgets', () => {
++  const dir = repo('lg19');
++  seedLegacyLoops(dir, ['older']);
++  const open = subject => loop(dir, ['open', subject, '--json']).json.loop;
++  check('old loop keeps its frozen cap', open('older').cap === 3);
++  for (const [subject, last, verdict] of [['early pass', 8, 'go'], ['budget exhausted', 10, 'no-go']]) {
++    const item = open(subject);
++    check('new loop opens with ten rounds', item.cap === 10);
++    for (let n = 1; n <= last; n++) {
++      const result = n === last ? verdict : 'no-go';
++      const options = result === 'go' ? ['--result', 'go'] : ['--spot', 'check-' + n];
++      const r = loop(dir, ['round', item.id, ...options, '--json']);
++      check(subject + ' round ' + n, r.status === (n === 10 ? 3 : 0));
++      if (n === last) check(subject + ' outcome', result === 'go' ? r.json?.loop?.outcome === 'passed' : r.json?.reason === 'cap_reached', r.text);
++    }
++  }
++});
+@@ -386,0 +409 @@
++  seedLegacyLoops(dir, ['stopped subject', 'open subject', 'extended subject']);
+@@ -427,0 +451 @@
++  seedLegacyLoops(dir, ['ascii subject', 'second subject']);
+@@ -605 +629 @@
+-  const desc = { ko: '같은 주제의 반복 검수·수리 회차 기록 (기본 한도 3회) — 모든 worktree 공유, STOP 은 exit 3', en: 'records repeated review or fix rounds on one subject (default cap 3); shared by all worktrees; STOP exits 3' };
++  const desc = { ko: '같은 주제의 반복 검수·수리 회차 기록 (기본 한도 10회) — 모든 worktree 공유, STOP 은 exit 3', en: 'records repeated review or fix rounds on one subject (default cap 10); shared by all worktrees; STOP exits 3' };
+@@ -633,2 +657,2 @@
+-  const stop = (dir, subject) => { loop(dir, ['open', subject]); for (const spot of ['a', 'b', 'c']) loop(dir, ['round', 'L-0001', '--spot', spot]); };
+-  const stopLine = subject => `LOOP STOP L-0001 "${subject}" 3/3 rounds - owner decision required: leerness loop status L-0001`;
++  const stop = (dir, subject) => { loop(dir, ['open', subject]); for (let n = 1; n <= 10; n++) loop(dir, ['round', 'L-0001', '--spot', 'check-' + n]); };
++  const stopLine = subject => `LOOP STOP L-0001 "${subject}" 10/10 rounds - owner decision required: leerness loop status L-0001`;
+@@ -709,0 +734 @@
++  seedLegacyLoops(dir, ['capped subject']);
+@@ -729 +754 @@
+-  for (const spot of ['a', 'b', 'c']) loop(dir, ['round', 'L-0001', '--spot', spot]);
++  for (let n = 0; n < 3; n++) loop(dir, ['round', 'L-0001', '--spot', 'same-check']);
 diff --git a/scripts/migration-compat.js b/scripts/migration-compat.js
 index 6a59d825..efd41ec5 100644
 --- a/scripts/migration-compat.js
@@ -6100,8 +6310,38 @@ index 957c9689..d16d9cc4 100644
 -    assert.ok(path.basename(resolved).startsWith('leerness-reminder-text-'));removeTree(resolved, { recursive: true, force: true });
 -  }
 +  require('./temp-cleanup').runIsolatedWorker(__filename, 'leerness-reminder-text-', 'REMINDER_TEXT_ROOT', 600000);
+diff --git a/scripts/review-feedback-loop-cases.js b/scripts/review-feedback-loop-cases.js
+index 78cd8002..5992523c 100644
+--- a/scripts/review-feedback-loop-cases.js
++++ b/scripts/review-feedback-loop-cases.js
+@@ -73,5 +73,6 @@
+-  test('loop: the review-wide budget adds up stages and flags budgets above the recommended three', () => {
+-    const root = stagedFixture();
+-    let s = F.submit(root, stagedRound({ stageId: 'first', roundId: 'r-1', session: 'rev-1', verdict: 'FAIL', findings: [issue()] }));
+-    assert.deepEqual(s.goRoute.budget, { roundsUsed: 1, maxRounds: 3, remaining: 2 });
+-    assert.deepEqual(s.goRoute.reviewBudget, { roundsUsed: 1, maxRounds: 5, remaining: 4, recommendedMax: 3 });
++  test('loop: the review-wide budget adds up stages and flags budgets above the recommended ten', () => {
++    const large = staged(); large.stages[0].maxRounds = 9;
++    const root = stagedFixture(large);
++    let s = F.submit(root, stagedRound({ contract: large, stageId: 'first', roundId: 'r-1', session: 'rev-1', verdict: 'FAIL', findings: [issue()] }));
++    assert.deepEqual(s.goRoute.budget, { roundsUsed: 1, maxRounds: 9, remaining: 8 });
++    assert.deepEqual(s.goRoute.reviewBudget, { roundsUsed: 1, maxRounds: 11, remaining: 10, recommendedMax: 10 });
+@@ -79,2 +80,2 @@
+-    assert.ok(en.includes('review total 1/5'), en); assert.ok(en.includes('above the 3 recommended for ordinary work'), en);
+-    assert.ok(transport.summarize(s, 'ko').includes('일반 작업 권장치 3회를 넘습니다'));
++    assert.ok(en.includes('review total 1/11'), en); assert.ok(en.includes('above the 10 recommended for ordinary work'), en);
++    assert.ok(transport.summarize(s, 'ko').includes('일반 작업 권장치 10회를 넘습니다'));
+@@ -83 +84 @@
+-    assert.deepEqual(s.goRoute.reviewBudget, { roundsUsed: 1, maxRounds: 3, remaining: 1, recommendedMax: 3 });
++    assert.deepEqual(s.goRoute.reviewBudget, { roundsUsed: 1, maxRounds: 3, remaining: 1, recommendedMax: 10 });
+@@ -85 +86 @@
+-    const v1 = F.submit(fixture(), round()); assert.deepEqual(v1.goRoute.reviewBudget, { roundsUsed: 1, maxRounds: 3, remaining: 2, recommendedMax: 3 });
++    const v1 = F.submit(fixture(), round()); assert.deepEqual(v1.goRoute.reviewBudget, { roundsUsed: 1, maxRounds: 3, remaining: 2, recommendedMax: 10 });
+@@ -91 +92 @@
+-    const request = s.goRoute.steps.find(x => x.code === 'request-review'); assert.equal(request.continueSession, 'rev-1'); assert.equal(request.newSession, true);
++    const request = s.goRoute.steps.find(x => x.code === 'request-review'); assert.equal(request.continueSession, 'rev-1'); assert.equal(request.newSession, false);
 diff --git a/scripts/review-feedback-probe.js b/scripts/review-feedback-probe.js
-index 00ca63a4..47fa09ef 100644
+index 00ca63a4..0f1c9223 100644
 --- a/scripts/review-feedback-probe.js
 +++ b/scripts/review-feedback-probe.js
 @@ -209,0 +210,19 @@
@@ -6124,7 +6364,25 @@ index 00ca63a4..47fa09ef 100644
 +  for (const s of ['10억 개', 'low 비차단 의견', '그대로 차단', '결정마다 질문 하나'])
 +    assert.ok(g.projectGuidance('ko').includes(s), s);
 +});
-@@ -588,0 +608,16 @@
+@@ -317 +336 @@
+-  assert.equal(JSON.parse(result.stdout).result.contract.maxRounds, 3); const before = bytes(root);
++  assert.equal(JSON.parse(result.stdout).result.contract.maxRounds, 10); const before = bytes(root);
+@@ -319,0 +339,5 @@
++  const oldRoot = fixture({ ...c, maxRounds: 3 });
++  const oldBytes = bytes(oldRoot);
++  assert.equal(F.start(oldRoot, c).contract.maxRounds, 3);
++  assert.deepEqual(bytes(oldRoot), oldBytes);
++  assert.throws(() => F.start(oldRoot, { ...c, maxRounds: 4 }), { code: 'feedback_contract_changed' });
+@@ -404 +428,4 @@
+-  const c = staged(); delete c.stages[1].maxRounds; assert.equal(C.validateContract(c).stages[1].maxRounds, 3);
++  const c = staged(); delete c.stages[1].maxRounds; assert.equal(C.validateContract(c).stages[1].maxRounds, 7);
++  delete c.stages[0].maxRounds;
++  assert.deepEqual(C.validateContract(c).stages.map(s => s.maxRounds), [5, 5]);
++  assert.deepEqual(C.validateContract(c, { legacyDefaults: true }).stages.map(s => s.maxRounds), [3, 3]);
+@@ -499 +526 @@
+-  const request = g.steps[2]; assert.deepEqual([request.stageId, request.expectedRound, request.remainingRounds, request.newSession, request.reuseAttempt], ['first', 1, 2, true, false]);
++  const request = g.steps[2]; assert.deepEqual([request.stageId, request.expectedRound, request.remainingRounds, request.newSession, request.reuseAttempt], ['first', 1, 2, false, false]);
+@@ -588,0 +616,16 @@
 +test('argument errors say what was wrong, and a bare call or per-operation --help prints the usage', () => {
 +  const raw = args => cp.spawnSync(process.execPath, [cli, 'review-feedback', ...args], { cwd: arena, encoding: 'utf8', timeout: 60000, windowsHide: true });
 +  for (const args of [[], ['start', '--help'], ['show', '-h']]) {
@@ -6430,7 +6688,7 @@ index 3dddb3c4..996b3b30 100644
 -check('status', ['status', tmp], { match: s => /present|존재|설치/.test(s) || true });
 +check('status', ['status', tmp], { match: s => /present|존재|설치/.test(s) });
 diff --git a/scripts/store-values-probe.js b/scripts/store-values-probe.js
-index f6dbfd99..ec0d3152 100644
+index f6dbfd99..0c107e5d 100644
 --- a/scripts/store-values-probe.js
 +++ b/scripts/store-values-probe.js
 @@ -267 +267 @@
@@ -6439,6 +6697,27 @@ index f6dbfd99..ec0d3152 100644
 @@ -272 +272 @@
 -  assert.ok(/보안 사전 점검 \(1\.9\.98\): 통과/.test(passedCheck), passedCheck);
 +  assert.ok(/보안 사전 점검: 통과/.test(passedCheck), passedCheck);
+@@ -346 +346,2 @@
+-  must(run(dir, ['graph', '--html', '--path', dir]), 'graph --html');
++  const graph = json(run(dir, ['graph', '--html', '--json', '--path', dir]), 'graph --html');
++  assert.strictEqual(graph.counts.skill, 4, 'each skill must have a distinct graph node');
+@@ -348,2 +349,2 @@
+-  assert.ok(html.includes('skill:g-one') && html.includes('skill:g-two'), 'both skill nodes');
+-  assert.strictEqual((html.match(/"id":"skill:/g) || []).length, 4, 'one graph node per skill');
++  const snapshot = JSON.parse(/^var DATA = (.+);$/m.exec(html)[1]);
++  assert.deepStrictEqual(snapshot.roadmap.skills.map(s => s.name).sort(), ['g-nl', 'g-one', 'g-sp', 'g-two']);
+diff --git a/scripts/stored-read-adapters-probe.js b/scripts/stored-read-adapters-probe.js
+index fbcf3bf0..a3066b6e 100644
+--- a/scripts/stored-read-adapters-probe.js
++++ b/scripts/stored-read-adapters-probe.js
+@@ -296 +296 @@
+-  for (const spot of ['a', 'b']) assert.equal(f.run(['loop', 'round', 'L-0001', '--spot', spot]).status, 0);
++  for (const spot of ['a', 'a']) assert.equal(f.run(['loop', 'round', 'L-0001', '--spot', spot]).status, 0);
+@@ -298,2 +298,2 @@
+-  assert.deepEqual(result.data.loopGuard.open, [{ id: 'L-0001', subject: 'peer subject', rounds: 2, cap: 3 }]);
+-  assert.equal(f.run(['loop', 'round', 'L-0001', '--spot', 'c']).status, 3);
++  assert.deepEqual(result.data.loopGuard.open, [{ id: 'L-0001', subject: 'peer subject', rounds: 2, cap: 10 }]);
++  assert.equal(f.run(['loop', 'round', 'L-0001', '--spot', 'a']).status, 3);
 diff --git a/scripts/task-review-assessment-probe.js b/scripts/task-review-assessment-probe.js
 index c81640b4..4cb6fbb9 100644
 --- a/scripts/task-review-assessment-probe.js
