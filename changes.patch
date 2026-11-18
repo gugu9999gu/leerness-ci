@@ -1,5 +1,5 @@
 diff --git a/bin/leerness.js b/bin/leerness.js
-index fb0c37b5..6a5dde14 100644
+index fb0c37b5..fc0bc8b6 100644
 --- a/bin/leerness.js
 +++ b/bin/leerness.js
 @@ -408 +408 @@
@@ -700,6 +700,9 @@ index fb0c37b5..6a5dde14 100644
 @@ -5664 +5651 @@
 -      const src = read(__filename);
 +      const src = _productSource();
+@@ -5668 +5655 @@
+-      const movedToLib = modSrc.includes("require('./io')") && modSrc.includes("require('./catalogs')") && modSrc.includes(bodyMarker) && !src.includes(bodyMarker);
++      const movedToLib = modSrc.includes("require('./io')") && modSrc.includes("require('./catalogs')") && modSrc.includes(bodyMarker) && !audit.toString().includes(bodyMarker);
 @@ -5684 +5671 @@
 -      const src = read(__filename);
 +      const src = _productSource();
