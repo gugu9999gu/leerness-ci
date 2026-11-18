@@ -1,0 +1,240 @@
+name: Public snapshot CI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: product
+
+concurrency:
+  group: public-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  core:
+    if: github.repository == 'gugu9999gu/leerness-ci' && startsWith(github.ref, 'refs/heads/snapshots/')
+    name: core (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['18.20.8', '20.20.2', '22.23.4', '24.22.2', '26.3.0']
+    env:
+      LEERNESS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Verify snapshot commit
+        working-directory: .
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          actual="$(git rev-parse HEAD)"
+          echo "source $actual node $(node --version) runner ${RUNNER_OS}"
+          test "$actual" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain)"
+      - name: Read pinned public baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gugu9999gu/leerness
+          ref: b5a3c4631353ba0ab7171cfce5b0c60353223ea3
+          path: upstream
+          persist-credentials: false
+      - name: Assemble and verify source
+        working-directory: .
+        run: python ci/prepare.py upstream product
+      - name: version
+        run: node ./bin/leerness.js --version
+      - name: Model selection and approval
+        if: github.ref_name == 'snapshots/model-selection'
+        run: node scripts/model-pin-probe.js
+      - name: CLI and MCP model selection
+        if: github.ref_name == 'snapshots/model-selection'
+        run: node scripts/model-pin-cli-probe.js
+      - name: Interactive model selection
+        if: github.ref_name == 'snapshots/model-selection'
+        run: node scripts/runtime-repl-probe.js
+      - name: lint
+        run: node ./scripts/lint.js
+      - name: selftest
+        run: node ./bin/leerness.js selftest
+      - name: state scopes
+        run: npm run test:state-scopes
+      - name: runtime compatibility
+        run: npm run test:runtime-compatibility
+      - name: Windows encoding replacement controls
+        if: runner.os == 'Windows'
+        run: node ./scripts/encoding-selftest-probe.js --real-controls
+      - name: release runtime
+        run: node ./scripts/release-runtime-probe.js
+      - name: e2e-core
+        run: node ./scripts/e2e-core.js
+      - name: mutation integrity
+        run: node ./scripts/mutation-integrity-probe.js
+      - name: handoff enforcement
+        run: npm run test:handoff
+      - name: environment example sync
+        run: npm run test:env-sync-text
+      - name: review feedback
+        run: node ./scripts/review-feedback-probe.js
+
+  installed:
+    if: github.repository == 'gugu9999gu/leerness-ci' && startsWith(github.ref, 'refs/heads/snapshots/')
+    name: installed package (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['18.20.8', '26.3.0']
+    env:
+      LEERNESS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Verify snapshot commit
+        working-directory: .
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          actual="$(git rev-parse HEAD)"
+          echo "source $actual node $(node --version) runner ${RUNNER_OS}"
+          test "$actual" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain)"
+      - name: Read pinned public baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gugu9999gu/leerness
+          ref: b5a3c4631353ba0ab7171cfce5b0c60353223ea3
+          path: upstream
+          persist-credentials: false
+      - name: Assemble and verify source
+        working-directory: .
+        run: python ci/prepare.py upstream product
+      - name: installed cleanroom
+        run: npm run test:installed
+
+  e2e:
+    if: github.repository == 'gugu9999gu/leerness-ci' && startsWith(github.ref, 'refs/heads/snapshots/')
+    name: e2e (${{ matrix.os }}, node ${{ matrix.node }}, ${{ matrix.shard }}/${{ matrix.shards }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: '22.23.4', shard: 1, shards: 2 }
+          - { os: ubuntu-latest, node: '22.23.4', shard: 2, shards: 2 }
+          - { os: windows-latest, node: '24.22.2', shard: 1, shards: 4 }
+          - { os: windows-latest, node: '24.22.2', shard: 2, shards: 4 }
+          - { os: windows-latest, node: '24.22.2', shard: 3, shards: 4 }
+          - { os: windows-latest, node: '24.22.2', shard: 4, shards: 4 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Verify snapshot commit
+        working-directory: .
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          actual="$(git rev-parse HEAD)"
+          echo "source $actual node $(node --version) runner ${RUNNER_OS}"
+          test "$actual" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain)"
+      - name: Read pinned public baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gugu9999gu/leerness
+          ref: b5a3c4631353ba0ab7171cfce5b0c60353223ea3
+          path: upstream
+          persist-credentials: false
+      - name: Assemble and verify source
+        working-directory: .
+        run: python ci/prepare.py upstream product
+      - name: e2e
+        env:
+          LEERNESS_OFFLINE: '1'
+          LEERNESS_E2E_SHARD: ${{ matrix.shard }}/${{ matrix.shards }}
+        run: node ./scripts/e2e.js
+
+  full-suite:
+    if: github.repository == 'gugu9999gu/leerness-ci' && startsWith(github.ref, 'refs/heads/snapshots/')
+    name: complete npm test (ubuntu, node 22.23.4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22.23.4'
+          package-manager-cache: false
+      - name: Verify snapshot commit
+        working-directory: .
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          actual="$(git rev-parse HEAD)"
+          echo "source $actual node $(node --version) runner ${RUNNER_OS}"
+          test "$actual" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain)"
+      - name: Read pinned public baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gugu9999gu/leerness
+          ref: b5a3c4631353ba0ab7171cfce5b0c60353223ea3
+          path: upstream
+          persist-credentials: false
+      - name: Assemble and verify source
+        working-directory: .
+        run: python ci/prepare.py upstream product
+      - name: npm test
+        env:
+          LEERNESS_OFFLINE: '1'
+        run: npm test
+
+  verdict:
+    needs: [core, installed, e2e, full-suite]
+    if: always() && github.repository == 'gugu9999gu/leerness-ci' && startsWith(github.ref, 'refs/heads/snapshots/')
+    name: every job ran and passed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check needed job results
+        working-directory: .
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          node -e "const n = JSON.parse(process.env.RESULTS); const names = Object.keys(n); let bad = names.length !== 4 ? 1 : 0; for (const k of names) { console.log(k + ': ' + n[k].result); if (n[k].result !== 'success') bad++; } console.log('source ' + process.env.SOURCE_SHA); process.exit(bad ? 1 : 0);"
