@@ -33,10 +33,13 @@ jobs:
           LC_ALL: ''
           LC_CTYPE: ''
         run: |
+          set +e
           project=$(mktemp -d)
           node bin/leerness.js init "$project" --yes --no-banner --no-stale-check --language ko --skills recommended
+          echo "init exit $?"
           node bin/leerness.js benchmark "$project" --scenario all --json > "$RUNNER_TEMP/benchmark.json"
-          node -e "const r = require(process.argv[1]); for (const s of r.scenarios) console.log(JSON.stringify({key:s.key, detected:s.detected, level:s.level, exit:s.exit, sample:s.sample})); process.exitCode = Number(r.detectedCount !== 4)" "$RUNNER_TEMP/benchmark.json"
+          echo "benchmark exit $?"
+          node -e "const r = require(process.argv[1]); if (!Array.isArray(r.scenarios)) { console.log(JSON.stringify({error:r.error,code:r.code})); process.exit(1); } for (const s of r.scenarios) console.log(JSON.stringify({key:s.key, detected:s.detected, level:s.level, exit:s.exit, sample:s.sample})); process.exitCode = Number(r.detectedCount !== 4)" "$RUNNER_TEMP/benchmark.json"
       - name: Test release commands with local fixtures
         if: success() || failure()
         working-directory: product
