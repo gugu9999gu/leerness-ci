@@ -65,3 +65,8 @@ jobs:
       - name: Verify adapter completion and concurrent merge
         working-directory: product
         run: node scripts/repl-adapter-command-probe.js
+      - name: Verify review guidance and budgets
+        working-directory: product
+        run: |
+          node --test scripts/task-review-assessment-probe.js
+          node scripts/review-feedback-probe.js
