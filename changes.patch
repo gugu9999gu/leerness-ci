@@ -1,5 +1,5 @@
 diff --git a/bin/leerness.js b/bin/leerness.js
-index fb0c37b5..a858997d 100644
+index fb0c37b5..6a5dde14 100644
 --- a/bin/leerness.js
 +++ b/bin/leerness.js
 @@ -408 +408 @@
@@ -1259,22 +1259,85 @@ index fb0c37b5..a858997d 100644
 @@ -9754 +9788 @@
 -  log(cy(_ht(`# leerness pulse (1.9.231/1.9.232) — 한 줄 종합 요약`, `# leerness pulse — one-line summary`)));
 +  log(cy(_ht(`# leerness pulse — 한 줄 종합 요약`, `# leerness pulse — one-line summary`)));
-@@ -11121,2 +11155 @@
+@@ -10279,16 +10313,8 @@
+-function _p0101PathStrictOk() {
+-  const os2 = require('os');
+-  const bogus = path.join(os2.tmpdir(), 'leerness-no-such-dir-' + process.pid + '-zz');
+-  if (exists(bogus)) return false;                                   
+-  const cp2 = require('child_process');
+-  const bad = [];
+-   
+-   
+-  const _sample = [['pulse'], ['session-resume'], ['tech'], ['library'], ['memory', 'status'], ['env', 'check'], ['retro']];
+-  for (const argv of _sample) {
+-    const r = cp2.spawnSync(process.execPath, [__filename, ...argv, bogus], { encoding: 'utf8', timeout: 60000, env: Object.assign({}, process.env, { LEERNESS_OFFLINE: '1' }) });
+-    if (r.status === 0) bad.push(argv.join(' '));
+-  }
+-   
+-  const okDir = fs.mkdtempSync(path.join(os2.tmpdir(), 'leerness-pathok-'));
+-  let controlOk = false;
++function _p0101PathStrictOk(spawn = require('child_process').spawnSync) {
++  const temp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'leerness-path-check-'));
++  const missing = path.join(temp, 'missing-project');
++  const valid = path.join(temp, 'valid-project');
++  const env = { ...process.env, LEERNESS_OFFLINE: '1', LEERNESS_NO_STALE_CHECK: '1',
++    LEERNESS_NO_AUTO_ROADMAP: '1', LEERNESS_INTERNAL: '1', HOME: temp, USERPROFILE: temp, LEERNESS_HOME: temp };
++  const run = (argv, timeout = 60000) => spawn(process.execPath, [__filename, ...argv],
++    { cwd: temp, env, encoding: 'utf8', timeout, windowsHide: true });
+@@ -10296,7 +10322,30 @@
+-    fs.writeFileSync(path.join(okDir, 'package.json'), '{"name":"p","version":"0.1.0"}');
+-    cp2.spawnSync(process.execPath, [__filename, 'init', okDir, '--yes'], { encoding: 'utf8', timeout: 180000, env: Object.assign({}, process.env, { LEERNESS_OFFLINE: '1' }) });
+-    const r = cp2.spawnSync(process.execPath, [__filename, 'health', okDir], { encoding: 'utf8', timeout: 60000, env: Object.assign({}, process.env, { LEERNESS_OFFLINE: '1' }) });
+-    controlOk = r.status === 0;
+-  } catch { controlOk = false; } finally { try { fs.rmSync(okDir, { recursive: true, force: true }); } catch {   } }
+-   
+-  return bad.length === 0 && controlOk && _sample.length >= 7 && _PATH_STRICT_CMDS.length >= 20;
++    for (const command of _PATH_STRICT_CMDS) {
++      for (const explicit of [true, false]) {
++        const args = explicit ? [...command, '--path', missing, '--json'] : [...command, missing, '--json'];
++        const child = run(args);
++        if (child.error || child.signal || child.status !== 1 || fs.lstatSync(missing, { throwIfNoEntry: false })) return false;
++        const result = JSON.parse(child.stdout);
++        if (!explicit && command[0] === 'audit') {
++          if (result.healthy !== false || result.root !== missing || result.failures !== 1 ||
++              !result.findings?.some(f => f.kind === 'not_initialized' && f.severity === 'fail' && f.root === missing)) return false;
++        } else {
++          const gate = !explicit && command[0] === 'gate';
++          if (result.ok !== false || result.code !== (gate ? 'error' : 'path_not_found') ||
++              typeof result.error !== 'string' || !result.error.includes(missing) ||
++              (gate && !result.error.includes('.leerness/AGENTS.md'))) return false;
++        }
++      }
++    }
++    fs.mkdirSync(valid);
++    fs.writeFileSync(path.join(valid, 'package.json'), '{"name":"p","version":"0.1.0"}');
++    const init = run(['init', valid, '--yes'], 180000);
++    if (init.error || init.signal || init.status !== 0) return false;
++    const health = run(['health', valid, '--json']);
++    if (health.error || health.signal || health.status !== 0) return false;
++    const report = JSON.parse(health.stdout);
++    return report.root === valid && typeof report.checks?.drift?.score === 'number';
++  } catch {
++    return false;
++  } finally {
++    _removeSync(temp, { recursive: true, force: true });
++  }
+@@ -11121,2 +11170 @@
 -      const d = path.join(arena, 'p' + Math.abs(body.length));
 -      fs.mkdirSync(d, { recursive: true });
 +      const d = fs.mkdtempSync(path.join(arena, 'project-'));
-@@ -11135 +11168,3 @@
+@@ -11135 +11183,3 @@
 -    const cleaned = !exists(auto);
 +    const manualText = 'manual'.padEnd(_autoReminderText(body).length, '.');
 +    const manual = mk(manualText);
 +    const cleaned = !exists(auto) && read(manual) === manualText;
-@@ -11364 +11399 @@
+@@ -11364 +11414 @@
 -  let src = read(__filename);
 +  let src = _selfSource();
-@@ -11806 +11841 @@
+@@ -11806 +11856 @@
 -  if (domain && !catalog[domain]) {
 +  if (domain && !Object.hasOwn(catalog, domain)) {
-@@ -11844,4 +11879,4 @@
+@@ -11844,4 +11894,4 @@
 -      { cmd: 'pulse [path] [--json]', desc: '한 줄 종합 요약 (1.9.231)', descEn: 'one-line overall summary (1.9.231)' },
 -      { cmd: 'round-history [path] [--json]', desc: 'git tag 기반 자율 라운드 통계 (1.9.226)', descEn: 'autonomous round stats from git tags (1.9.226)' },
 -      { cmd: 'milestones [path] [--json]', desc: '도달 마일스톤 + 다음 ETA (1.9.229)', descEn: 'reached milestones + next ETA (1.9.229)' },
@@ -1283,42 +1346,42 @@ index fb0c37b5..a858997d 100644
 +      { cmd: 'round-history [path] [--json]', desc: 'git tag 기반 자율 라운드 통계', descEn: 'autonomous round stats from git tags' },
 +      { cmd: 'milestones [path] [--json]', desc: '도달 마일스톤 + 다음 ETA', descEn: 'reached milestones + next ETA' },
 +      { cmd: 'session-resume [path] [--auto-fix] [--json]', desc: '비정상 종료 감지 + 자율 재개', descEn: 'detect abnormal shutdown + autonomous resume' },
-@@ -11849 +11884 @@
+@@ -11849 +11899 @@
 -      { cmd: 'memory status [path] [--json]', desc: 'T/D/R/P/L Memory Surface (1.9.114)', descEn: 'T/D/R/P/L memory surface (1.9.114)' }
 +      { cmd: 'memory status [path] [--json]', desc: 'T/D/R/P/L Memory Surface', descEn: 'T/D/R/P/L memory surface' }
-@@ -11852,2 +11887,2 @@
+@@ -11852,2 +11902,2 @@
 -      { cmd: 'task add "<request>"', desc: 'task 추가 (자동 dedup 1.9.212, review trigger 1.9.177)', descEn: 'add a task (auto-dedup 1.9.212, review trigger 1.9.177)' },
 -      { cmd: 'task update <id> --status <S>', desc: 'task 상태 갱신', descEn: 'update task status' },
 +      { cmd: 'task add "<request>"', desc: 'task 추가 (자동 dedup, review trigger)', descEn: 'add a task (auto-dedup, review trigger)' },
 +      { cmd: 'task update <id> --status <S> [--evidence E] [--next N] [--note R]', desc: 'task 상태 갱신 (--note 는 메모 추가가 아니라 Request 열 문구를 교체)', descEn: 'update task status (--note replaces the Request text; it does not append a note)' },
-@@ -11855 +11890 @@
+@@ -11855 +11905 @@
 -      { cmd: 'task export --to <path>', desc: 'TodoWrite JSON 형식 export (1.9.60) — --to·--json 은 task sync 가 비교할 기준을 .leerness/cache 에 기록', descEn: 'export in TodoWrite JSON format (1.9.60); --to and --json record the baseline task sync compares with in .leerness/cache' },
 +      { cmd: 'task export --to <path>', desc: 'TodoWrite JSON 형식 export — --to·--json 은 task sync 가 비교할 기준을 .leerness/cache 에 기록', descEn: 'export in TodoWrite JSON format; --to and --json record the baseline task sync compares with in .leerness/cache' },
-@@ -11857 +11892 @@
+@@ -11857 +11907 @@
 -      { cmd: 'next-action take|list [--json]', desc: 'next-action queue (1.9.201)', descEn: 'next-action queue (1.9.201)' }
 +      { cmd: 'next-action take|list [--json]', desc: 'next-action queue', descEn: 'next-action queue' }
-@@ -11860,2 +11895,2 @@
+@@ -11860,2 +11910,2 @@
 -      { cmd: 'decision add|list|drop <id>', desc: 'decisions.md CRUD (1.9.108/118/125)', descEn: 'decisions.md CRUD (1.9.108/118/125)' },
 -      { cmd: 'rule add|list|pause|resume|remove', desc: 'rules.md CRUD (1.9.8/109)', descEn: 'rules.md CRUD (1.9.8/109)' },
 +      { cmd: 'decision add|list|drop <id>', desc: 'decisions.md CRUD', descEn: 'decisions.md CRUD' },
 +      { cmd: 'rule add|list|pause|resume|remove', desc: 'rules.md CRUD', descEn: 'rules.md CRUD' },
-@@ -11863,2 +11898,2 @@
+@@ -11863,2 +11913,2 @@
 -      { cmd: 'plan add|list <M-id>', desc: 'plan.md milestone CRUD (1.9.110/119)', descEn: 'plan.md milestone CRUD (1.9.110/119)' },
 -      { cmd: 'lesson save|list|drop', desc: 'lessons.md CRUD (1.9.112/117/124)', descEn: 'lessons.md CRUD (1.9.112/117/124)' }
 +      { cmd: 'plan add|list <M-id>', desc: 'plan.md milestone CRUD', descEn: 'plan.md milestone CRUD' },
 +      { cmd: 'lesson save|list|drop', desc: 'lessons.md CRUD', descEn: 'lessons.md CRUD' }
-@@ -11878 +11913 @@
+@@ -11878 +11928 @@
 -      { cmd: 'drift check [path] [--auto-fix] [--json]', desc: 'drift 신호 + 자동 회복 (1.9.37/82/225)', descEn: 'drift signals + auto-recovery (1.9.37/82/225)' },
 +      { cmd: 'drift check [path] [--auto-fix] [--json]', desc: 'drift 신호 + 자동 회복', descEn: 'drift signals + auto-recovery' },
-@@ -11881,2 +11916,2 @@
+@@ -11881,2 +11931,2 @@
 -      { cmd: 'lazy detect [path] [--json]', desc: '게으른 작업 감지 (1.9.101)', descEn: 'detect lazy/incomplete work (1.9.101)' },
 -      { cmd: 'verify-claim <T-ID|--all> [--run-tests] [--strict-claims] [--raw] · baseline create --before <T-ID> --yes|show', cmdEn: 'verify-claim <T-ID|--all> [--run-tests] [--strict-claims] [--raw] · baseline create --before <T-ID> --yes|show', desc: '주장 검증 — --all은 명시적 legacy baseline 적용, --raw는 원판정 감사. baseline create는 경계 이전 exact 행+사유 실패만 격리하며 evidence를 수정하지 않음 (1.36.167)', descEn: 'claim verification — --all applies an explicit legacy baseline; --raw audits raw verdicts. baseline create isolates only exact row+reason failures before a boundary without editing evidence (1.36.167)' },
 +      { cmd: 'lazy detect [path] [--json]', desc: '게으른 작업 감지', descEn: 'detect lazy/incomplete work' },
 +      { cmd: 'verify-claim <T-ID|--all> [--run-tests] [--strict-claims] [--raw] · baseline create --before <T-ID> --yes|show', cmdEn: 'verify-claim <T-ID|--all> [--run-tests] [--strict-claims] [--raw] · baseline create --before <T-ID> --yes|show', desc: '주장 검증 — --all은 명시적 legacy baseline 적용, --raw는 원판정 감사. baseline create는 경계 이전 exact 행+사유 실패만 격리하며 evidence를 수정하지 않음', descEn: 'claim verification — --all applies an explicit legacy baseline; --raw audits raw verdicts. baseline create isolates only exact row+reason failures before a boundary without editing evidence' },
-@@ -11885 +11920 @@
+@@ -11885 +11935 @@
 -      { cmd: `lens [${_lensDomainList()}] [--json]`, desc: '분야별 자기질문 품질 렌즈 + 분야간 인과관계 (1.18.3 · database/contract/recovery/observability 는 심화, axes 는 8축 경량 점검)', descEn: 'per-domain self-question quality lenses + cross-domain causality (1.18.3 · database/contract/recovery/observability are deep dives, axes is a light 8-axis check)' },
 +      { cmd: `lens [${_lensDomainList()}] [--json]`, desc: '분야별 자기질문 품질 렌즈 + 분야간 인과관계 (database/contract/recovery/observability 는 심화, axes 는 8축 경량 점검)', descEn: 'per-domain self-question quality lenses + cross-domain causality (database/contract/recovery/observability are deep dives, axes is a light 8-axis check)' },
-@@ -11887,5 +11922,5 @@
+@@ -11887,5 +11937,5 @@
 -      { cmd: 'library [show|page] [path] [--json] [--ai]', desc: '재사용 인벤토리 — 컴포넌트·디자인 토큰을 저장소에서 추출. page: 오프라인 단일 HTML · --ai: 에이전트용 압축 JSON (1.36.98 P-0013)', descEn: 'reuse inventory — extracts components and design tokens from the repo. page: offline single HTML · --ai: compact JSON for agents (1.36.98 P-0013)' },
 -      { cmd: 'optimism-check <T-ID>', desc: '낙관적 API 감지 (1.9.26)', descEn: 'detect optimistic API claims (1.9.26)' },
 -      { cmd: 'requests audit|list|complete|drop|auto-complete', desc: '사용자 요청 추적 (1.9.207/223)', descEn: 'track user requests (1.9.207/223)' },
@@ -1329,17 +1392,17 @@ index fb0c37b5..a858997d 100644
 +      { cmd: 'requests audit|list|complete|drop|auto-complete', desc: '사용자 요청 추적', descEn: 'track user requests' },
 +      { cmd: 'pre-wake-audit [path] [--last]', desc: 'sleep 전 점검', descEn: 'pre-sleep checks' },
 +      { cmd: 'idempotency audit', desc: '멱등성 위반 탐지', descEn: 'detect idempotency violations' }
-@@ -11895 +11930 @@
+@@ -11895 +11945 @@
 -      { cmd: 'resume [path]', desc: 'auto-resume-plan 적용 (1.9.203)', descEn: 'apply the auto-resume plan (1.9.203)' },
 +      { cmd: 'resume [path]', desc: 'auto-resume-plan 적용', descEn: 'apply the auto-resume plan' },
-@@ -11898,3 +11933,3 @@
+@@ -11898,3 +11948,3 @@
 -      { cmd: 'roles list|set|unset|catalog|suggest|verify|validate', desc: '모델별 역할 부여 + fail-closed 저장소 검증 — 1.9.270/T-0171', descEn: 'assign roles and validate the role store fail-closed — 1.9.270/T-0171' },
 -      { cmd: 'capabilities [--json]', desc: '권한·보안 표면 공개 (무엇을 하는지 + opt-out + 주의 명령) — 1.9.272', descEn: 'disclose the permission/security surface (what it does + opt-outs + commands to watch) — 1.9.272' },
 -      { cmd: 'state show|start|record|verify|handoff', desc: '.leerness/ JSON 상태 substrate (에이전트 간 인수인계 표준) — 1.9.278', descEn: '.leerness/ JSON state substrate (cross-agent handoff standard) — 1.9.278' },
 +      { cmd: 'roles list|set|unset|catalog|suggest|verify|validate', desc: '모델별 역할 부여 + fail-closed 저장소 검증', descEn: 'assign roles and validate the role store fail-closed' },
 +      { cmd: 'capabilities [--json]', desc: '권한·보안 표면 공개 (무엇을 하는지 + opt-out + 주의 명령)', descEn: 'disclose the permission/security surface (what it does + opt-outs + commands to watch)' },
 +      { cmd: 'state show|start|record|verify|handoff', desc: '.leerness/ JSON 상태 substrate (에이전트 간 인수인계 표준)', descEn: '.leerness/ JSON state substrate (cross-agent handoff standard)' },
-@@ -11904,10 +11939,10 @@
+@@ -11904,10 +11954,10 @@
 -      { cmd: 'adapter <tool>|list [--dry-run]', desc: '도구별 지침/.mcp.json 선택 생성 (claude/cursor/codex/goose/...) — 1.9.280', descEn: 'generate per-tool instructions/.mcp.json selectively (claude/cursor/codex/goose/...) — 1.9.280' },
 -      { cmd: 'ci init [path] [--force]', desc: 'PR 마다 leerness gate 실행하는 GitHub Actions 워크플로 생성 (.github/workflows/leerness-gate.yml) — 1.9.444', descEn: 'create a GitHub Actions workflow that runs leerness gate on every PR (.github/workflows/leerness-gate.yml) — 1.9.444' },
 -      { cmd: 'export|prompt --target <agent>', desc: 'adapter 별칭 — 도구별 지침/계약 파일 생성 (claude/cursor/codex/agents-md/...) — 1.9.448', descEn: 'adapter alias — generate per-tool instruction/contract files (claude/cursor/codex/agents-md/...) — 1.9.448' },
@@ -1360,33 +1423,33 @@ index fb0c37b5..a858997d 100644
 +      { cmd: 'release channel [--json]', desc: '릴리스 채널 정책 (latest 안정 / next 실험 / 버전 고정)', descEn: 'release channel policy (latest stable / next experimental / pinned)' },
 +      { cmd: 'slash-commands [agent] [--json --record --detect --refresh]', desc: 'CLI 에이전트 슬래시 명령 레지스트리 + --help probe 자동 갱신', descEn: 'slash-command registry for CLI agents + auto refresh via --help probe' },
 +      { cmd: 'review-request "<request>"', desc: '사용자 요청 사전 검토', descEn: 'pre-review a user request' },
-@@ -11922 +11957 @@
+@@ -11922 +11972 @@
 -      { cmd: 'review <file> --persona <ids>', desc: '페르소나 리뷰 (1.9.29)', descEn: 'persona-based review (1.9.29)' },
 +      { cmd: 'review <file> --persona <ids>', desc: '페르소나 리뷰', descEn: 'persona-based review' },
-@@ -11926 +11961 @@
+@@ -11926 +11976 @@
 -      { cmd: 'release sync-main [path]', desc: 'main merge + push + 자동 npm publish (1.9.140/178)', descEn: 'merge to main + push + auto npm publish (1.9.140/178)' },
 +      { cmd: 'release sync-main [path]', desc: 'main merge + push + 자동 npm publish', descEn: 'merge to main + push + auto npm publish' },
-@@ -11929,2 +11964,2 @@
+@@ -11929,2 +11979,2 @@
 -      { cmd: 'release channel [path] [--json]', desc: '릴리스 채널 정책 (stable/next/고정) — 1.9.275', descEn: 'release channel policy (stable/next/pinned) — 1.9.275' },
 -      { cmd: 'release cadence [path] [--json]', desc: '릴리스 빈도 진단 + 권장 (외부리뷰 케이던스 가시화) — UR-0074, 1.9.374', descEn: 'release cadence diagnosis + recommendation — UR-0074, 1.9.374' }
 +      { cmd: 'release channel [path] [--json]', desc: '릴리스 채널 정책 (stable/next/고정)', descEn: 'release channel policy (stable/next/pinned)' },
 +      { cmd: 'release cadence [path] [--json]', desc: '릴리스 빈도 진단 + 권장 (외부리뷰 케이던스 가시화)', descEn: 'release cadence diagnosis + recommendation' }
-@@ -11937,3 +11972,3 @@
+@@ -11937,3 +11987,3 @@
 -      { cmd: 'web check|screenshot|extract <url>', desc: 'playwright bridge (opt-in, 1.9.165)', descEn: 'playwright bridge (opt-in, 1.9.165)' },
 -      { cmd: 'pc check|click|type|screenshot', desc: 'robotjs/nut-tree bridge (opt-in, 1.9.166)', descEn: 'robotjs/nut-tree bridge (opt-in, 1.9.166)' },
 -      { cmd: 'lsp check|symbols|references', desc: 'LSP 어댑터 (1.9.167)', descEn: 'LSP adapter (1.9.167)' }
 +      { cmd: 'web check|screenshot|extract <url>', desc: 'playwright bridge (opt-in)', descEn: 'playwright bridge (opt-in)' },
 +      { cmd: 'pc check|click|type|screenshot', desc: 'robotjs/nut-tree bridge (opt-in)', descEn: 'robotjs/nut-tree bridge (opt-in)' },
 +      { cmd: 'lsp check|symbols|references', desc: 'LSP 어댑터', descEn: 'LSP adapter' }
-@@ -11945,2 +11980,2 @@
+@@ -11945,2 +11995,2 @@
 -      { cmd: 'wakeup-interval get|set|auto|history|record', desc: 'adaptive wakeup (1.9.210)', descEn: 'adaptive wakeup interval (1.9.210)' },
 -      { cmd: 'sessions [path] [--json]', desc: '이 프로젝트에 남은 **다른 AI 세션 기록** (1.36.129, P-0016 P1) — 기록만 보여 주고 프로세스 상태는 판정하지 않는다', descEn: 'session records left by other AI sessions in this project (1.36.129, P-0016 P1) — records only; process state is never judged' },
 +      { cmd: 'wakeup-interval get|set|auto|history|record', desc: 'adaptive wakeup', descEn: 'adaptive wakeup interval' },
 +      { cmd: 'sessions [path] [--json]', desc: '이 프로젝트에 남은 **다른 AI 세션 기록** — 기록만 보여 주고 프로세스 상태는 판정하지 않는다', descEn: 'session records left by other AI sessions in this project — records only; process state is never judged' },
-@@ -11948 +11983 @@
+@@ -11948 +11998 @@
 -      { cmd: 'loop open|round|decide|status [--json]', desc: '같은 주제의 반복 검수·수리 회차 기록 (기본 한도 3회) — 모든 worktree 공유, STOP 은 exit 3', descEn: 'records repeated review or fix rounds on one subject (default cap 3); shared by all worktrees; STOP exits 3' },
 +      { cmd: 'loop open|round|decide|status [--json]', desc: '같은 주제의 반복 검수·수리 회차 기록 (기본 한도 10회) — 모든 worktree 공유, STOP 은 exit 3', descEn: 'records repeated review or fix rounds on one subject (default cap 10); shared by all worktrees; STOP exits 3' },
-@@ -11950,9 +11985,9 @@
+@@ -11950,9 +12000,9 @@
 -      { cmd: 'parent detect|adopt [--select <kinds>] [--apply]', desc: '상위 leerness 부모 탐지 + 자산 게이트형 adopt (1.30.2~3)', descEn: 'detect a parent leerness above + gated asset adoption (1.30.2~3)' },
 -      { cmd: 'intent classify|expand|domains "<request>"', desc: '의도 파악 + scope (1.9.213)', descEn: 'infer intent + scope (1.9.213)' },
 -      { cmd: 'constraints list|check|add', desc: '플랫폼/API 제약 (1.9.208)', descEn: 'platform/API constraints (1.9.208)' },
@@ -1405,7 +1468,7 @@ index fb0c37b5..a858997d 100644
 +      { cmd: 'migrate --guide', desc: 'AI 에이전트용 크로스버전 마이그레이션 가이드', descEn: 'cross-version migration guide for AI agents' },
 +      { cmd: 'doctor [--json]', desc: '설치/환경 진단', descEn: 'install/environment diagnosis' },
 +      { cmd: 'selftest [--json]', desc: '코어 함수 무결성 자가 검증', descEn: 'self-verify core function integrity' },
-@@ -11961,5 +11996,5 @@
+@@ -11961,5 +12011,5 @@
 -      { cmd: 'toggle get|set|list <기능> [on|off]', cmdEn: 'toggle get|set|list <feature> [on|off]', desc: '기능 토글 (gate/lens/auto-graph/delegation-brief) — leerness.html ⚙ 탭과 연동 (1.36.30)', descEn: 'feature toggles (gate/lens/auto-graph/delegation-brief) — synced with the leerness.html ⚙ tab (1.36.30)' },
 -      { cmd: 'install-safety [--json]', desc: '설치 안전 프로필 — 0 deps/0 install-script (1.9.359)', descEn: 'install safety profile — 0 deps / 0 install scripts (1.9.359)' },
 -      { cmd: 'env check|sync|detect [path]', desc: '셸/인코딩 환경 진단 (1.9.241)', descEn: 'shell/encoding environment diagnosis (1.9.241)' },
@@ -1416,137 +1479,137 @@ index fb0c37b5..a858997d 100644
 +      { cmd: 'env check|sync|detect [path]', desc: '셸/인코딩 환경 진단', descEn: 'shell/encoding environment diagnosis' },
 +      { cmd: 'shell-guard "<command>"', desc: '셸 호환성 정적 분석', descEn: 'static shell-compatibility analysis' },
 +      { cmd: 'path-setup [--apply]', desc: 'CLI PATH 자동 등록', descEn: 'register the CLI on PATH automatically' }
-@@ -11969,2 +12004,2 @@
+@@ -11969,2 +12019,2 @@
 -      { cmd: 'permissions list|set', desc: 'agent 권한 모드 (1.9.174)', descEn: 'agent permission mode (1.9.174)' },
 -      { cmd: 'capabilities [--json]', desc: '권한·보안 표면 공개 (1.9.272)', descEn: 'disclose the permission/security surface (1.9.272)' },
 +      { cmd: 'permissions list|set', desc: 'agent 권한 모드', descEn: 'agent permission mode' },
 +      { cmd: 'capabilities [--json]', desc: '권한·보안 표면 공개', descEn: 'disclose the permission/security surface' },
-@@ -12000 +12035 @@
+@@ -12000 +12050 @@
 -  log(cy(ct(`# leerness commands (1.9.233) — 전체 CLI 명령 카테고리 목록`, `# leerness commands (1.9.233) — full CLI command catalog by category`)));
 +  log(cy(ct(`# leerness commands — 전체 CLI 명령 카테고리 목록`, `# leerness commands — full CLI command catalog by category`)));
-@@ -12033 +12068 @@
+@@ -12033 +12083 @@
 -  log(t(`# leerness release cadence (1.9.374, UR-0074) — 릴리스 빈도 진단 (읽기 전용)`, `# leerness release cadence (1.9.374, UR-0074) — release-frequency diagnosis (read-only)`));
 +  log(t(`# leerness release cadence — 릴리스 빈도 진단 (읽기 전용)`, `# leerness release cadence — release-frequency diagnosis (read-only)`));
-@@ -12051 +12086 @@
+@@ -12051 +12101 @@
 -  log(cy(t(`# leerness round-history (1.9.226) — 자율 라운드 통계`, `# leerness round-history (1.9.226) — autonomous-round statistics`)));
 +  log(cy(t(`# leerness round-history — 자율 라운드 통계`, `# leerness round-history — autonomous-round statistics`)));
-@@ -12134,2 +12169,2 @@
+@@ -12134,2 +12184,2 @@
 -    return { reports: Array.isArray(j.reports) ? j.reports : [] };
 -  } catch { return { reports: [] }; }
 +    return Array.isArray(j && j.reports) ? { reports: j.reports } : { reports: [], corrupt: true };
 +  } catch { return { reports: [], corrupt: true }; }
-@@ -12266,0 +12302 @@
+@@ -12266,0 +12317 @@
 +    if (state.corrupt) { warn(`pre-wake-report.json 을 읽을 수 없어 이번 audit 은 저장하지 않습니다(기존 파일 보존): ${_preWakeReportPath(root)}`); return audit; }
-@@ -12268 +12304 @@
+@@ -12268 +12319 @@
 -     
 +
-@@ -12270 +12306 @@
+@@ -12270 +12321 @@
 -    _writePreWakeReport(root, state.reports);
 +    if (!_writePreWakeReport(root, state.reports)) warn(`pre-wake-report.json 저장 실패 — 이번 audit 은 기록되지 않았습니다`);
-@@ -12388 +12424 @@
+@@ -12388 +12439 @@
 -      result.resumeGuide.push(_ht('2. leerness resume — 저장된 auto-resume-plan 적용 (1.9.203)', '2. leerness resume — apply the saved auto-resume-plan'));
 +      result.resumeGuide.push(_ht('2. leerness resume — 저장된 auto-resume-plan 적용', '2. leerness resume — apply the saved auto-resume-plan'));
-@@ -12824 +12860,3 @@
+@@ -12824 +12875,3 @@
 -    const mentioned = mentionPatterns.some(p => lowerText.includes(p));
 +    const mentioned = mentionPatterns.some(p => (/^[a-z0-9_.-]+$/.test(p)
 +      ? new RegExp('(?<![a-z0-9])' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:e?s)?(?![a-z0-9])').test(lowerText)
 +      : lowerText.includes(p)));
-@@ -12902 +12940,2 @@
+@@ -12902 +12955,2 @@
 -    log(`# leerness resume (1.9.203)`);
 +    if (has('--json')) { log('null'); return; }
 +    log(`# leerness resume`);
-@@ -12913 +12952 @@
+@@ -12913 +12967 @@
 -  log(cyan(`# 🔄 leerness resume (1.9.203 자동 라운드 plan 적용)`));
 +  log(cyan(`# 🔄 leerness resume (자동 라운드 plan 적용)`));
-@@ -12961 +13000 @@
+@@ -12961 +13015 @@
 -    log(_t(`# leerness requests (1.9.207) — 사용자 요청 누락 확인 절차`, `# leerness requests — track missing user requests`));
 +    log(_t(`# leerness requests — 사용자 요청 누락 확인 절차`, `# leerness requests — track missing user requests`));
-@@ -12968 +13007 @@
+@@ -12968 +13022 @@
 -    log(_t(`  auto-complete    → "Round X.Y.Z — 구현 완료" 패턴 자동 감지 (default: dry-run, --apply 시 적용) [1.9.223]`, `  auto-complete    → auto-detect "Round X.Y.Z delivered" patterns (default: dry-run, --apply to apply)`));
 +    log(_t(`  auto-complete    → "Round X.Y.Z — 구현 완료" 패턴 자동 감지 (default: dry-run, --apply 시 적용)`, `  auto-complete    → auto-detect "Round X.Y.Z delivered" patterns (default: dry-run, --apply to apply)`));
-@@ -12988 +13027 @@
+@@ -12988 +13042 @@
 -    log(cyan(`# leerness requests auto-complete (1.9.223) — delivered pattern 자동 감지`));
 +    log(cyan(`# leerness requests auto-complete — delivered pattern 자동 감지`));
-@@ -13034 +13073 @@
+@@ -13034 +13088 @@
 -    log(cyan(`# leerness requests list (1.9.207)`));
 +    log(cyan(`# leerness requests list`));
-@@ -13074 +13113 @@
+@@ -13074 +13128 @@
 -    log(cyan(`# leerness requests audit (1.9.207) — 사용자 요청 누락 확인 절차`));
 +    log(cyan(`# leerness requests audit — 사용자 요청 누락 확인 절차`));
-@@ -13163 +13202 @@
+@@ -13163 +13217 @@
 -  log(cyan(`# leerness session-resume (1.9.220) — 비정상 종료 감지 + 자율 재개`));
 +  log(cyan(`# leerness session-resume — 비정상 종료 감지 + 자율 재개`));
-@@ -13233 +13272 @@
+@@ -13233 +13287 @@
 -    log(_t(`# leerness constraints (1.9.208) — 플랫폼/API 제약 사전 체크`, `# leerness constraints — pre-check platform/API constraints`));
 +    log(_t(`# leerness constraints — 플랫폼/API 제약 사전 체크`, `# leerness constraints — pre-check platform/API constraints`));
-@@ -13249 +13288 @@
+@@ -13249 +13303 @@
 -    log(cyan(`# leerness constraints list (1.9.208)`));
 +    log(cyan(`# leerness constraints list`));
-@@ -13270 +13309 @@
+@@ -13270 +13324 @@
 -    log(cyan(`# leerness constraints check (1.9.208)`));
 +    log(cyan(`# leerness constraints check`));
-@@ -13296 +13335,2 @@
+@@ -13296 +13350,2 @@
 -    if (!id) return failJson(has('--json'), 'missing_platform_id', 'Usage: leerness constraints add <platform-id> --constraint "kind:detail"');   
 +    if (!id) return failJson(has('--json'), 'missing_platform_id', 'Usage: leerness constraints add <platform-id> --constraint "kind:detail"');
 +    if (id in Object.prototype) return failJson(has('--json'), 'invalid_platform_id', `쓸 수 없는 platform id: ${JSON.stringify(_lineSafe(id))} (객체 내장 이름)`);
-@@ -13315 +13355 @@
+@@ -13315 +13370 @@
 -    _writePlatformConstraints(root, catalog);
 +    if (!_writePlatformConstraints(root, catalog)) return failJson(has('--json'), 'write_failed', `platform-constraints.json 저장 실패 — 변경이 기록되지 않았습니다: ${_platformConstraintsPath(root)}`);
-@@ -13343 +13383,2 @@
+@@ -13343 +13398,2 @@
 -      log(cyan(`# leerness pre-wake-audit (1.9.209) — review`));
 +      if (has('--json')) { log('null'); return; }
 +      log(cyan(`# leerness pre-wake-audit — review`));
-@@ -13349 +13390 @@
+@@ -13349 +13405 @@
 -    log(cyan(`# leerness pre-wake-audit (1.9.209) — review (latest)`));
 +    log(cyan(`# leerness pre-wake-audit — review (latest)`));
-@@ -13378 +13419 @@
+@@ -13378 +13434 @@
 -  log(cyan(`# leerness pre-wake-audit (1.9.209) — sleep 전 sub-agent audit`));
 +  log(cyan(`# leerness pre-wake-audit — sleep 전 sub-agent audit`));
-@@ -13428 +13469 @@
+@@ -13428 +13484 @@
 -    log(_t(`# leerness wakeup-interval (1.9.210) — adaptive wakeup 간격`, `# leerness wakeup-interval — adaptive wakeup interval`));
 +    log(_t(`# leerness wakeup-interval — adaptive wakeup 간격`, `# leerness wakeup-interval — adaptive wakeup interval`));
-@@ -13443 +13484 @@
+@@ -13443 +13499 @@
 -    log(cyan(`# leerness wakeup-interval get (1.9.210)`));
 +    log(cyan(`# leerness wakeup-interval get`));
-@@ -13462 +13503 @@
+@@ -13462 +13518 @@
 -    if (!val || !Number.isFinite(n) || n < 60) { fail('Usage: leerness wakeup-interval set <secs ≥ 60>'); process.exit(1); }
 +    if (!/^[0-9]+$/.test(String(val || '')) || !Number.isSafeInteger(n) || n < 60) { fail('Usage: leerness wakeup-interval set <integer secs ≥ 60>'); process.exit(1); }
-@@ -13487 +13528 @@
+@@ -13487 +13543 @@
 -    log(cyan(`# leerness wakeup-interval history (1.9.210)`));
 +    log(cyan(`# leerness wakeup-interval history`));
-@@ -13583 +13624 @@
+@@ -13583 +13639 @@
 -    log(cyan(`# leerness parent detect (1.30.2)`));
 +    log(cyan(`# leerness parent detect`));
-@@ -13622 +13663 @@
+@@ -13622 +13678 @@
 -      if (!has('--json')) { log(cyan(`# leerness parent adopt (1.30.3)`)); log(dim(t(`  상위 leerness 부모 프로젝트 없음 — adopt 대상 없음.`, `  no parent leerness project — nothing to adopt.`))); }
 +      if (!has('--json')) { log(cyan(`# leerness parent adopt`)); log(dim(t(`  상위 leerness 부모 프로젝트 없음 — adopt 대상 없음.`, `  no parent leerness project — nothing to adopt.`))); }
-@@ -13627 +13668 @@
+@@ -13627 +13683 @@
 -        log(cyan(`# leerness parent adopt (1.30.3) [DRY-RUN]`));
 +        log(cyan(`# leerness parent adopt [DRY-RUN]`));
-@@ -13641 +13682 @@
+@@ -13641 +13697 @@
 -      else { log(cyan(`# leerness parent adopt (1.30.3)`)); log(dim(t(`  적용 후보 없음 — 기록하지 않음 (부모에 선택 자산 없거나 --select 무효).`, `  no candidates — nothing recorded (parent lacks the selected assets, or --select invalid).`))); }
 +      else { log(cyan(`# leerness parent adopt`)); log(dim(t(`  적용 후보 없음 — 기록하지 않음 (부모에 선택 자산 없거나 --select 무효).`, `  no candidates — nothing recorded (parent lacks the selected assets, or --select invalid).`))); }
-@@ -13663 +13704 @@
+@@ -13663 +13719 @@
 -        log(cyan(`# leerness parent adopt (1.30.3)`));
 +        log(cyan(`# leerness parent adopt`));
-@@ -13776 +13817 @@
+@@ -13776 +13832 @@
 -        const isActive = !/^(done|dropped|blocked|completed)$/i.test(status);
 +        const isActive = !_TASK_INACTIVE_STATUS_RE.test(status);
-@@ -13818 +13859 @@
+@@ -13818 +13874 @@
 -      audit.verified.push({ kind: 'user-requests', detail: t(`${seen.size} open requests, 중복 0건 (1.9.207 dedup OK)`, `${seen.size} open requests, 0 duplicates (1.9.207 dedup OK)`) });
 +      audit.verified.push({ kind: 'user-requests', detail: t(`${seen.size} open requests, 중복 0건 (dedup OK)`, `${seen.size} open requests, 0 duplicates (dedup OK)`) });
-@@ -13841 +13882 @@
+@@ -13841 +13897 @@
 -      audit.verified.push({ kind: 'wakeups', detail: t(`${pending.length} pending wakeups, 중복 0건 (1.9.205 dedup OK)`, `${pending.length} pending wakeups, 0 duplicates (1.9.205 dedup OK)`) });
 +      audit.verified.push({ kind: 'wakeups', detail: t(`${pending.length} pending wakeups, 중복 0건 (dedup OK)`, `${pending.length} pending wakeups, 0 duplicates (dedup OK)`) });
-@@ -13858,0 +13900 @@
+@@ -13858,0 +13915 @@
 +const _TASK_INACTIVE_STATUS_RE = /^(done|dropped|blocked|completed|\[완료\]|\[드랍\]|\[보류\])$/i;
-@@ -13885 +13927 @@
+@@ -13885 +13942 @@
 -        const isActive = !/^(done|dropped|blocked|completed|\[완료\]|\[드랍\]|\[보류\])/i.test(r.status || '');
 +        const isActive = !_TASK_INACTIVE_STATUS_RE.test(r.status || '');
-@@ -13903 +13945 @@
+@@ -13903 +13960 @@
 -  } catch (e) { fixed.push({ kind: 'task-duplicate-request', action: 'error', detail: String(e.message || e) }); }
 +  } catch (e) { if (e && e.code === 'E_DRY_RUN_WRITE') throw e; fixed.push({ kind: 'task-duplicate-request', action: 'error', detail: String(e.message || e) }); }
-@@ -13906,15 +13948,17 @@
+@@ -13906,15 +13963,17 @@
 -    const ur = _loadUserRequests(root);
 -    if (ur.unrecognized) throw new Error('user-requests.json 형태 인식 불가 — dedup 건너뜀(원본 덮어쓰기 방지)');   
 -    const seen = new Map();
@@ -1579,46 +1642,46 @@ index fb0c37b5..a858997d 100644
 +      }
 +    });
 +  } catch (e) { if (e && e.code === 'E_DRY_RUN_WRITE') throw e; fixed.push({ kind: 'user-request-duplicate', action: 'error', detail: String(e.message || e) }); }
-@@ -13934 +13978 @@
+@@ -13934 +13993 @@
 -    log(t(`# leerness idempotency (1.9.212) — 멱등성 위반 탐지`, `# leerness idempotency — detect idempotency violations`));
 +    log(t(`# leerness idempotency — 멱등성 위반 탐지`, `# leerness idempotency — detect idempotency violations`));
-@@ -13937 +13981 @@
+@@ -13937 +13996 @@
 -    log(t(`  audit --auto-fix    → task 완전중복 행 제거 + active 동일텍스트 dropped 처리 + user-request open 중복 정리 (1.9.293)`, `  audit --auto-fix    → remove exact-duplicate tasks + mark same-text active as dropped + dedup open user-requests`));
 +    log(t(`  audit --auto-fix    → task 완전중복 행 제거 + active 동일텍스트 dropped 처리 + user-request open 중복 정리`, `  audit --auto-fix    → remove exact-duplicate tasks + mark same-text active as dropped + dedup open user-requests`));
-@@ -13939 +13983 @@
+@@ -13939 +13998 @@
 -    log(dim(t(`  dedup 적용 영역: ruleAdd / taskAdd (1.9.212) + _recordUserRequest (1.9.207) + _recordWakeup (1.9.205)`, `  dedup applies to: ruleAdd / taskAdd + _recordUserRequest + _recordWakeup`)));
 +    log(dim(t(`  dedup 적용 영역: ruleAdd / taskAdd + _recordUserRequest + _recordWakeup`, `  dedup applies to: ruleAdd / taskAdd + _recordUserRequest + _recordWakeup`)));
-@@ -13941 +13985 @@
+@@ -13941 +14000 @@
 -    log(dim(t(`  자동화: drift check --auto-fix 가 idempotency 중복도 자동 정리 (1.9.293)`, `  automation: drift check --auto-fix also dedups idempotency violations`)));
 +    log(dim(t(`  자동화: drift check --auto-fix 가 idempotency 중복도 자동 정리`, `  automation: drift check --auto-fix also dedups idempotency violations`)));
-@@ -13954 +13998 @@
+@@ -13954 +14013 @@
 -    log(cyan(`# leerness idempotency audit (1.9.212)`));
 +    log(cyan(`# leerness idempotency audit`));
-@@ -14021 +14065 @@
+@@ -14021 +14080 @@
 -    log(_t(`# leerness intent (1.9.213) — 사용자 의도 파악 + scope expansion 게이트`, `# leerness intent — infer user intent + scope-expansion gate`));
 +    log(_t(`# leerness intent — 사용자 의도 파악 + scope expansion 게이트`, `# leerness intent — infer user intent + scope-expansion gate`));
-@@ -14037 +14081 @@
+@@ -14037 +14096 @@
 -    log(cyan(`# leerness intent classify (1.9.213)`));
 +    log(cyan(`# leerness intent classify`));
-@@ -14055 +14099 @@
+@@ -14055 +14114 @@
 -    log(cyan(`# leerness intent expand (1.9.213) [DRY-RUN]`));
 +    log(cyan(`# leerness intent expand [DRY-RUN]`));
-@@ -14085 +14129 @@
+@@ -14085 +14144 @@
 -    log(cyan(`# leerness intent domains (1.9.213)`));
 +    log(cyan(`# leerness intent domains`));
-@@ -14638 +14681,0 @@
+@@ -14638 +14696,0 @@
 -  const selfHost = _sessionHostIdIfPresent(root);
-@@ -14639,0 +14683,3 @@
+@@ -14639,0 +14698,3 @@
 +  let selfHost = null;
 +  try { selfHost = _sessionHostIdIfPresent(root); }
 +  catch (error) { _scan.storeError ||= error.code || 'EREAD'; }
-@@ -14693 +14739 @@
+@@ -14693 +14754 @@
 -  log(cy(t(`# leerness sessions (1.36.129) — 세션 기록`, `# leerness sessions (1.36.129) — session records`)));
 +  log(cy(t(`# leerness sessions — 세션 기록`, `# leerness sessions — session records`)));
-@@ -15053 +15099 @@
+@@ -15053 +15114 @@
 -    log(`# leerness next-action list (1.9.201)`);
 +    log(`# leerness next-action list`);
-@@ -15235,17 +15280,0 @@
+@@ -15235,17 +15295,0 @@
 -  try {
 -    const stressDir = path.resolve(root, '..', '_apps', 'leerness-stress', 'bin');
 -    if (exists(stressDir)) {
@@ -1636,119 +1699,119 @@ index fb0c37b5..a858997d 100644
 -    }
 -  } catch {}
 -
-@@ -15296,2 +15325,2 @@
+@@ -15296,2 +15340,2 @@
 -        previous = JSON.parse(input.text);
 -        if (!previous || typeof previous !== 'object' || Array.isArray(previous)) return false;
 +        try { previous = JSON.parse(input.text); } catch { previous = null; }
 +        if (!previous || typeof previous !== 'object' || Array.isArray(previous)) throw Object.assign(new Error('Official skill cache is not a valid JSON object; preserve it, or remove it with `leerness skill auto-cache clear`.'), { code: 'E_STORE_INVALID', file, storeRead: true });
-@@ -15303 +15332 @@
+@@ -15303 +15347 @@
 -  } catch { return false; }
 +  } catch (error) { if (error && error.code === 'E_STORE_INVALID') throw error; return false; }
-@@ -15317,2 +15346,2 @@
+@@ -15317,2 +15361,2 @@
 -      }
 -    } catch {}
 +      } else warn(`  ⚠ ${p.owner}/${p.repo}: ${r.error}`);
 +    } catch (error) { warn(`  ⚠ ${p.owner}/${p.repo}: ${error && error.message || error}`); }
-@@ -15350 +15379,3 @@
+@@ -15350 +15394,3 @@
 -  const raw = loadUserSkill(root, id) || (_skillCatalog()[id] ? { ..._skillCatalog()[id], name: id } : null);
 +  { const e = _badSkillId(id); if (e) return fail(e); }
 +  const _cat = _skillCatalog();
 +  const raw = loadUserSkill(root, id) || (Object.hasOwn(_cat, id) ? { ..._cat[id], name: id } : null);
-@@ -15353 +15384 @@
+@@ -15353 +15399 @@
 -  const description = data.description || data.displayNameKo || (data.capabilities && data.capabilities[0]) || id;    
 +  const description = String(data.description || data.displayNameKo || (data.capabilities && data.capabilities[0]) || id).replace(/\s+/g, ' ').trim();
-@@ -15716 +15747 @@
+@@ -15716 +15762 @@
 -  log(`# 🗺  Plan (1.9.119)\n`);
 +  log(`# 🗺  Plan\n`);
-@@ -15737 +15768 @@
+@@ -15737 +15783 @@
 -  const status = _normTaskStatus(arg('--status','planned')), progress = arg('--progress','0'), nextAction = arg('--next', _uiLang(root) === 'en' ? 'write the next action' : '다음 액션 작성');    
 +  const status = _normTaskStatus(arg('--status','planned')), progress = String(arg('--progress','0')).trim().replace(/%$/, ''), nextAction = arg('--next', _uiLang(root) === 'en' ? 'write the next action' : '다음 액션 작성');    
-@@ -15750 +15781,2 @@
+@@ -15750 +15796,2 @@
 -    require('../lib/managed-text').publishTextEdit(input, planPath(root), input.text + `\n### ${id}. ${_lineSafe(text)}\nStatus: ${status}\nProgress: ${_lineSafe(progress)}%\nDone-When: ${doneWhen}\n\nTasks:\n- [ ] ${_lineSafe(text)}\n`);
 +    const managedText = require('../lib/managed-text');
 +    managedText.publishTextEdit(input, planPath(root), input.text + `\n### ${id}. ${_lineSafe(text)}\nStatus: ${status}\nProgress: ${_lineSafe(progress)}%\nDone-When: ${doneWhen}\n\nTasks:\n- [ ] ${_lineSafe(text)}\n`);
-@@ -15752 +15784,5 @@
+@@ -15752 +15799,5 @@
 -    upsertProgress(root, { id: tid, status, request: text, evidence: `plan:${id}`, nextAction });
 +    try { upsertProgress(root, { id: tid, status, request: text, evidence: `plan:${id}`, nextAction }); }
 +    catch (error) {
 +      try { managedText.publishTextEdit(managedText.captureTextEdit(planPath(root)), planPath(root), input.text); } catch {}
 +      throw error;
 +    }
-@@ -15756 +15792 @@
+@@ -15756 +15807 @@
 -  if (has('--json')) { log(JSON.stringify({ ok: true, milestone: id, task: tid, text })); return; }
 +  if (has('--json')) { _autoRoadmap(absRoot(root), 'data-change', { quiet: true }); log(JSON.stringify({ ok: true, milestone: id, task: tid, text })); return; }
-@@ -15875 +15911,5 @@
+@@ -15875 +15926,5 @@
 -function planSync(root) { append(taskLogPath(root), `\n## ${today()}\n- Synced plan.md and progress-tracker.md.\n`); ok('plan/progress sync noted'); }
 +function planSync(root) {
 +  const en = _uiLang(root) === 'en';
 +  ok(en ? 'nothing to sync — plan and task commands update plan.md and progress-tracker.md together (check: leerness plan list)'
 +    : '맞출 것 없음 — plan·task 명령이 plan.md 와 progress-tracker.md 를 함께 갱신합니다 (확인: leerness plan list)');
 +}
-@@ -15936 +15976 @@
+@@ -15936 +15991 @@
 -      && !/^(done|dropped|blocked|completed)$/i.test(row.status))?.id || null;
 +      && !_TASK_INACTIVE_STATUS_RE.test(row.status))?.id || null;
-@@ -15957 +15997 @@
+@@ -15957 +16012 @@
 -  if (has('--json')) { log(JSON.stringify({ ok: true, id, status: _normTaskStatus(arg('--status', 'requested')), request: text })); return; }
 +  if (has('--json')) { _autoRoadmap(absRoot(root), 'data-change', { quiet: true }); log(JSON.stringify({ ok: true, id, status: _normTaskStatus(arg('--status', 'requested')), request: text })); return; }
-@@ -15977 +16017 @@
+@@ -15977 +16032 @@
 -        log(`🔍 review-request (1.9.177 자동): type=${j.estimatedType}` +
 +        log(`🔍 review-request (자동): type=${j.estimatedType}` +
-@@ -16327 +16367 @@
+@@ -16327 +16382 @@
 -  if (has('--json')) { log(JSON.stringify({ ok: true, ...patch, ...(_bfLines ? { bugfixReceipt: _bfLines } : {}) })); return; }
 +  if (has('--json')) { _autoRoadmap(absRoot(root), 'data-change', { quiet: true }); log(JSON.stringify({ ok: true, ...patch, ...(_bfLines ? { bugfixReceipt: _bfLines } : {}) })); return; }
-@@ -16360,2 +16400,3 @@
+@@ -16360,2 +16415,3 @@
 -  _historyRetention.combineTaskRows(activeRows.filter(r => /^T-/.test(r.id || '')), retainedTaskRows);
 -  const rows = [...activeRows, ...retainedTaskRows];
 +  const activeTaskRows = activeRows.filter(r => /^T-/.test(r.id || ''));
 +  _historyRetention.combineTaskRows(activeTaskRows, retainedTaskRows);
 +  const rows = [...activeTaskRows, ...retainedTaskRows];
-@@ -16402 +16443 @@
+@@ -16402 +16458 @@
 -    tasks: { inProgress: tasksInProgress, total: tasksTotal, active: activeRows.length, retained: retainedTaskRows.length, byStatus: tasksByStatus },
 +    tasks: { inProgress: tasksInProgress, total: tasksTotal, active: activeTaskRows.length, retained: retainedTaskRows.length, byStatus: tasksByStatus },
-@@ -16414 +16455 @@
+@@ -16414 +16470 @@
 -  log('# 🧠 Memory Surface Status (1.9.114)\n');
 +  log('# 🧠 Memory Surface Status\n');
-@@ -16480 +16521 @@
+@@ -16480 +16536 @@
 -  log('# 🗑 Memory Archive List (1.9.127)' + (queryFilter ? ` — query: "${queryFilter}"` : '') + '\n');
 +  log('# 🗑 Memory Archive List' + (queryFilter ? ` — query: "${queryFilter}"` : '') + '\n');
-@@ -16712 +16753 @@
+@@ -16712 +16768 @@
 -  if (has('--json') && publication.memoryPublication) {
 +  if (has('--json')) {
-@@ -16753 +16794 @@
+@@ -16753 +16809 @@
 -  log(`# 💡 Lessons (1.9.117)${tagFilter ? ` — tag: ${tagFilter}` : ''}${queryFilter ? ` — query: "${queryFilter}"` : ''}\n`);
 +  log(`# 💡 Lessons${tagFilter ? ` — tag: ${tagFilter}` : ''}${queryFilter ? ` — query: "${queryFilter}"` : ''}\n`);
-@@ -16884 +16925 @@
+@@ -16884 +16940 @@
 -  log(`# 🧠 Decisions (1.9.118)${queryFilter ? ` — query: "${queryFilter}"` : ''}\n`);
 +  log(`# 🧠 Decisions${queryFilter ? ` — query: "${queryFilter}"` : ''}\n`);
-@@ -17014,0 +17056 @@
+@@ -17014,0 +17071 @@
 +  if (!Number.isFinite(Number(arg('--min-score', '0.2')))) { failJson(has('--json'), 'invalid_arg', _uiLang(root) === 'en' ? '--min-score must be a number' : '--min-score 는 숫자여야 합니다'); return; }
-@@ -17123 +17165 @@
+@@ -17123 +17180 @@
 -  const r = routes[name];
 +  const r = Object.hasOwn(routes, name) ? routes[name] : undefined;
-@@ -17264 +17306 @@
+@@ -17264 +17321 @@
 -  log(t(`# leerness install-safety (1.9.359) — 설치 안전 프로필`, `# leerness install-safety — install safety profile`));
 +  log(t(`# leerness install-safety — 설치 안전 프로필`, `# leerness install-safety — install safety profile`));
-@@ -17680 +17722 @@
+@@ -17680 +17737 @@
 -  if (exists(knownPath)) { try { knownList = JSON.parse(read(knownPath)); } catch {} }
 +  if (exists(knownPath)) { try { const parsed = JSON.parse(read(knownPath)); if (Array.isArray(parsed)) knownList = parsed.filter(k => k && typeof k === 'object'); } catch {} }
-@@ -17693 +17734,0 @@
+@@ -17693 +17749,0 @@
 -    if (file.includes('.leerness')) continue;
-@@ -17695 +17736,2 @@
+@@ -17695 +17751,2 @@
 -    if (/[\\/]bin[\\/]harness\.js$/.test(file)) continue;
 +    const fileRel = rel(root, file);
 +    if (/(^|\/)\.leerness(-backup)?\//.test(fileRel.replace(/\\/g, '/'))) continue;
-@@ -17698 +17739,0 @@
+@@ -17698 +17754,0 @@
 -    const fileRel = rel(root, file);
-@@ -17763,0 +17805,5 @@
+@@ -17763,0 +17820,5 @@
 +          let knownNow = [];
 +          if (exists(knownPath)) { try { const parsed = JSON.parse(read(knownPath)); if (Array.isArray(parsed)) knownNow = parsed.filter(k => k && typeof k === 'object'); } catch {} }
 +          const haveKnown = new Set(knownNow.map(k => `${k.file}:${k.line}:${k.text}`));
 +          const stamped = toRegister.filter(t => !haveKnown.has(`${t.file}:${t.line}:${t.text}`)).map(t => ({ ...t, ackAt: now() }));
 +          writeUtf8(knownPath, JSON.stringify([...knownNow, ...stamped], null, 2) + '\n');
-@@ -17769,2 +17814,0 @@
+@@ -17769,2 +17829,0 @@
 -          const merged = [...knownList, ...registered.map(t => ({ ...t, ackAt: now() }))];
 -          writeUtf8(knownPath, JSON.stringify(merged, null, 2) + '\n');
-@@ -17826 +17870,6 @@
+@@ -17826 +17885,6 @@
 -  try {
 +  let stateDirReadable = true;
 +  try { fs.readdirSync(path.join(root, '.leerness')); } catch (e) {
@@ -1756,207 +1819,207 @@ index fb0c37b5..a858997d 100644
 +    if (e && e.code !== 'ENOENT') { const why = e.code || String(e.message); checks.push({ name: 'state JSON integrity', kind: 'json-integrity', ok: false, error: why }); issues++; if (!json) fail(`state JSON integrity unreadable: .leerness (${why})`); }
 +  }
 +  if (stateDirReadable) try {
-@@ -18467,2 +18516 @@
+@@ -18467,2 +18531 @@
 -            const giLines = giText.split('\n').map(l => l.trim());
 -            parts.push((giLines.includes('.env') || giLines.includes('/.env')) ? t('보안 OK', 'security OK') : t('🚨 .env 미무시', '🚨 .env not ignored'));
 +            parts.push(_gitignoreMatch(giText, '.env') ? t('보안 OK', 'security OK') : t('🚨 .env 미무시', '🚨 .env not ignored'));
-@@ -18535,2 +18583 @@
+@@ -18535,2 +18598 @@
 -          const giLines = giText.split('\n').map(l => l.trim());
 -          if (!(giLines.includes('.env') || giLines.includes('/.env'))) envUnprotected = true;
 +          if (!_gitignoreMatch(giText, '.env')) envUnprotected = true;
-@@ -18655 +18702 @@
+@@ -18655 +18717 @@
 -          parts.push(t(`자동완료가능 ${detected.candidates.length}건 (1.9.223)`, `${detected.candidates.length} auto-completable`));
 +          parts.push(t(`자동완료가능 ${detected.candidates.length}건`, `${detected.candidates.length} auto-completable`));
-@@ -18752 +18799 @@
+@@ -18752 +18814 @@
 -        log(cy2(_ht(`## 직전 sleep pre-wake-audit (1.9.209, ${ageMin}분 전)`, `## Pre-wake audit before the last sleep (${ageMin} min ago)`)));
 +        log(cy2(_ht(`## 직전 sleep pre-wake-audit (${ageMin}분 전)`, `## Pre-wake audit before the last sleep (${ageMin} min ago)`)));
-@@ -18777 +18824 @@
+@@ -18777 +18839 @@
 -      log(sevColor(_ht(`## ${sevIcon} 비정상 종료 감지 (1.9.220, severity: ${ad.severity})`, `## ${sevIcon} Abnormal shutdown detected (severity: ${ad.severity})`)));
 +      log(sevColor(_ht(`## ${sevIcon} 비정상 종료 감지 (severity: ${ad.severity})`, `## ${sevIcon} Abnormal shutdown detected (severity: ${ad.severity})`)));
-@@ -18783 +18830 @@
+@@ -18783 +18845 @@
 -      log(dm3(_ht(`  → 자동 회복: leerness session-resume --auto-fix (1.9.222)`, `  → auto-recover: leerness session-resume --auto-fix`)));
 +      log(dm3(_ht(`  → 자동 회복: leerness session-resume --auto-fix`, `  → auto-recover: leerness session-resume --auto-fix`)));
-@@ -18802 +18849 @@
+@@ -18802 +18864 @@
 -      log(rd5(_ht(`## ⚠ 셸 스크립트 인코딩 위험 ${scan.atRisk.length}건 (1.9.241, UR-0014)`, `## ⚠ Shell script encoding risk in ${scan.atRisk.length} file(s) (UR-0014)`)));
 +      log(rd5(_ht(`## ⚠ 셸 스크립트 인코딩 위험 ${scan.atRisk.length}건`, `## ⚠ Shell script encoding risk in ${scan.atRisk.length} file(s)`)));
-@@ -18811 +18858 @@
+@@ -18811 +18873 @@
 -      if (tList.length > 0) log(dm5(_ht(`  분류: ${tList.join(', ')} (1.9.243 CJK)`, `  types: ${tList.join(', ')} (CJK)`)));
 +      if (tList.length > 0) log(dm5(_ht(`  분류: ${tList.join(', ')} (CJK)`, `  types: ${tList.join(', ')} (CJK)`)));
-@@ -18813,2 +18860,2 @@
+@@ -18813,2 +18875,2 @@
 -      log(dm5(_ht(`  → 자동 회복: leerness env encoding --apply (UTF-8 BOM 자동 추가, 1.9.242)`, `  → auto-fix: leerness env encoding --apply (adds a UTF-8 BOM)`)));
 -      log(dm5(_ht(`  → 마감 시 자동: session close --auto-fix-encoding (1.9.243)`, `  → at close: session close --auto-fix-encoding`)));
 +      log(dm5(_ht(`  → 자동 회복: leerness env encoding --apply (UTF-8 BOM 자동 추가)`, `  → auto-fix: leerness env encoding --apply (adds a UTF-8 BOM)`)));
 +      log(dm5(_ht(`  → 마감 시 자동: session close --auto-fix-encoding`, `  → at close: session close --auto-fix-encoding`)));
-@@ -18828 +18875 @@
+@@ -18828 +18890 @@
 -      log(yl6(_ht(`## ⚠ 터미널 인코딩 — 한국어 Windows + CP${runtimeEnv.locale.codepage} (1.9.249, UR-0018)`, `## ⚠ Terminal encoding — Korean Windows + CP${runtimeEnv.locale.codepage} (UR-0018)`)));
 +      log(yl6(_ht(`## ⚠ 터미널 인코딩 — 한국어 Windows + CP${runtimeEnv.locale.codepage}`, `## ⚠ Terminal encoding — Korean Windows + CP${runtimeEnv.locale.codepage}`)));
-@@ -18843 +18890 @@
+@@ -18843 +18905 @@
 -      log(yl7(_ht(`## ⚠ 터미널 인코딩 — POSIX${wslTag} locale에 UTF-8 없음 (1.9.250, UR-0018 2단계)`, `## ⚠ Terminal encoding — POSIX${wslTag} locale has no UTF-8 (UR-0018)`)));
 +      log(yl7(_ht(`## ⚠ 터미널 인코딩 — POSIX${wslTag} locale에 UTF-8 없음`, `## ⚠ Terminal encoding — POSIX${wslTag} locale has no UTF-8`)));
-@@ -18866 +18913 @@
+@@ -18866 +18928 @@
 -      log(cy8(t(`## 터미널 셸 가드 (1.9.263, UR-0020)`, `## Terminal shell guard (UR-0020)`)));
 +      log(cy8(t(`## 터미널 셸 가드`, `## Terminal shell guard`)));
-@@ -18897 +18944 @@
+@@ -18897 +18959 @@
 -      log(cyS(t(`## CLI 에이전트 슬래시 명령 (1.9.265~266, UR-0021)`, `## CLI agent slash commands (UR-0021)`)));
 +      log(cyS(t(`## CLI 에이전트 슬래시 명령`, `## CLI agent slash commands`)));
-@@ -18928 +18975 @@
+@@ -18928 +18990 @@
 -        log(cy5(_ht(`## 관련 API skill ${matched.length}건 발견 (1.9.245, UR-0015) — 참조 권장`, `## ${matched.length} related API skill(s) found (UR-0015) — worth reading`)));
 +        log(cy5(_ht(`## 관련 API skill ${matched.length}건 발견 — 참조 권장`, `## ${matched.length} related API skill(s) found — worth reading`)));
-@@ -18955 +19002 @@
+@@ -18955 +19017 @@
 -        log(yl5(_ht(`## release/* branches 누적 ${mergedCnt}개 (50+) (1.9.237)`, `## ${mergedCnt} merged release/* branches (50+)`)));
 +        log(yl5(_ht(`## release/* branches 누적 ${mergedCnt}개 (50+)`, `## ${mergedCnt} merged release/* branches (50+)`)));
-@@ -18958 +19005 @@
+@@ -18958 +19020 @@
 -        log(dm5(_ht(`  → drift 자동 회복: drift check --auto-fix (1.9.236, 50+ 시)`, `  → drift auto-fix: drift check --auto-fix (when 50+)`)));
 +        log(dm5(_ht(`  → drift 자동 회복: drift check --auto-fix (50+ 시)`, `  → drift auto-fix: drift check --auto-fix (when 50+)`)));
-@@ -18968 +19015 @@
+@@ -18968 +19030 @@
 -    const envAutoApply = process.env.LEERNESS_AUTO_APPLY_DELIVERED === '1';
 +    const envAutoApply = process.env.LEERNESS_AUTO_APPLY_DELIVERED === '1' && has('--writeback') && process.env.LEERNESS_HOOK !== '1';
-@@ -18979 +19026 @@
+@@ -18979 +19041 @@
 -        log(gr5(_ht(`## 사용자 요청 자동 완료 (1.9.225, env LEERNESS_AUTO_APPLY_DELIVERED=1, ${appliedCnt}건)`, `## User requests auto-completed (LEERNESS_AUTO_APPLY_DELIVERED=1, ${appliedCnt})`)));
 +        log(gr5(_ht(`## 사용자 요청 자동 완료 (env LEERNESS_AUTO_APPLY_DELIVERED=1, ${appliedCnt}건)`, `## User requests auto-completed (LEERNESS_AUTO_APPLY_DELIVERED=1, ${appliedCnt})`)));
-@@ -18990 +19037 @@
+@@ -18990 +19052 @@
 -      log(yl4(_ht(`## 사용자 요청 자동 완료 가능 (1.9.224, ${delivered.candidates.length}건)`, `## User requests that can be auto-completed (${delivered.candidates.length})`)));
 +      log(yl4(_ht(`## 사용자 요청 자동 완료 가능 (${delivered.candidates.length}건)`, `## User requests that can be auto-completed (${delivered.candidates.length})`)));
-@@ -18999 +19046 @@
+@@ -18999 +19061 @@
 -      log(dm4(_ht(`  → 자율 모드 자동 적용: export LEERNESS_AUTO_APPLY_DELIVERED=1 (1.9.225)`, `  → apply automatically in autonomous mode: export LEERNESS_AUTO_APPLY_DELIVERED=1`)));
 +      log(dm4(_ht(`  → 자율 모드 자동 적용: export LEERNESS_AUTO_APPLY_DELIVERED=1`, `  → apply automatically in autonomous mode: export LEERNESS_AUTO_APPLY_DELIVERED=1`)));
-@@ -19085 +19132 @@
+@@ -19085 +19147 @@
 -            log(yel(_ht(`## 과거 lessons 자동 재상기 (1.9.56) — 키워드 "${keyword}"`, `## Past lessons recalled — keyword "${keyword}"`)));
 +            log(yel(_ht(`## 과거 lessons 자동 재상기 — 키워드 "${keyword}"`, `## Past lessons recalled — keyword "${keyword}"`)));
-@@ -19107 +19154 @@
+@@ -19107 +19169 @@
 -                  log(grn(_ht(`## 현재 task와 매칭되는 skill 자동 추천 (1.9.67) — 키워드 "${keyword}"`, `## Skills matching the current task — keyword "${keyword}"`)));
 +                  log(grn(_ht(`## 현재 task와 매칭되는 skill 자동 추천 — 키워드 "${keyword}"`, `## Skills matching the current task — keyword "${keyword}"`)));
-@@ -19124 +19171 @@
+@@ -19124 +19186 @@
 -                    log(blu(_ht(`## 이전 skill match 이력 (1.9.69) — 키워드 "${keyword}" 관련`, `## Earlier skill match history — keyword "${keyword}"`)));
 +                    log(blu(_ht(`## 이전 skill match 이력 — 키워드 "${keyword}" 관련`, `## Earlier skill match history — keyword "${keyword}"`)));
-@@ -19153 +19200 @@
+@@ -19153 +19215 @@
 -                      log(mag(_ht(`## brainstorm 자동 hits (1.9.88) — 키워드 "${keyword}" 누적 컨텍스트`, `## Brainstorm hits — keyword "${keyword}" in accumulated context`)));
 +                      log(mag(_ht(`## brainstorm 자동 hits — 키워드 "${keyword}" 누적 컨텍스트`, `## Brainstorm hits — keyword "${keyword}" in accumulated context`)));
-@@ -19176 +19223 @@
+@@ -19176 +19238 @@
 -                      log(cyan(_ht(`## 공식 organization 스킬 자동 매칭 (1.9.192/193) — 키워드 "${keyword}"`, `## Official organization skills matched — keyword "${keyword}"`)));
 +                      log(cyan(_ht(`## 공식 organization 스킬 자동 매칭 — 키워드 "${keyword}"`, `## Official organization skills matched — keyword "${keyword}"`)));
-@@ -19185 +19232 @@
+@@ -19185 +19247 @@
 -                      log(dim(_ht(`  → 1개 즉시: leerness skill install-top  (1.9.202)`, `  → install the top one: leerness skill install-top`)));
 +                      log(dim(_ht(`  → 1개 즉시: leerness skill install-top `, `  → install the top one: leerness skill install-top`)));
-@@ -19187 +19234 @@
+@@ -19187 +19249 @@
 -                      if (ofm.expired || veryStale) log(yel(_ht(`  → 갱신 권장: leerness skill auto-cache refresh  (1.9.193 ${veryStale ? '7일+ stale' : '24h+ expired'})`, `  → refresh recommended: leerness skill auto-cache refresh  (${veryStale ? '7d+ stale' : '24h+ expired'})`)));
 +                      if (ofm.expired || veryStale) log(yel(_ht(`  → 갱신 권장: leerness skill auto-cache refresh  (${veryStale ? '7일+ stale' : '24h+ expired'})`, `  → refresh recommended: leerness skill auto-cache refresh  (${veryStale ? '7d+ stale' : '24h+ expired'})`)));
-@@ -19193 +19240 @@
+@@ -19193 +19255 @@
 -                      log(dim(_ht(`  공식 스킬 catalog 캐시 없음 — \`leerness skill auto-cache refresh\` 로 vercel-labs/anthropics 캐시 생성 (1.9.192)`, `  no official skill catalog cache — run \`leerness skill auto-cache refresh\` to build the vercel-labs/anthropics cache`)));
 +                      log(dim(_ht(`  공식 스킬 catalog 캐시 없음 — \`leerness skill auto-cache refresh\` 로 vercel-labs/anthropics 캐시 생성`, `  no official skill catalog cache — run \`leerness skill auto-cache refresh\` to build the vercel-labs/anthropics cache`)));
-@@ -19223 +19270 @@
+@@ -19223 +19285 @@
 -                  log(grn(_ht(`## 다음 단계 자동 제안 (1.9.194 E축 — 게으름 방지) — 키워드 "${keyword}"`, `## Suggested next steps — keyword "${keyword}"`)));
 +                  log(grn(_ht(`## 다음 단계 자동 제안 (E축 — 게으름 방지) — 키워드 "${keyword}"`, `## Suggested next steps — keyword "${keyword}"`)));
-@@ -19232 +19279 @@
+@@ -19232 +19294 @@
 -                    ? _ht(`  → 즉시 task add: leerness next-action take  (큐 +${added}건 저장됨, 1.9.201)`, `  → add as a task now: leerness next-action take  (queue +${added} saved)`)
 +                    ? _ht(`  → 즉시 task add: leerness next-action take  (큐 +${added}건 저장됨)`, `  → add as a task now: leerness next-action take  (queue +${added} saved)`)
-@@ -19253 +19300 @@
+@@ -19253 +19315 @@
 -                  log(yel(_ht(`## ⚠ 진척 정체 감지 (1.9.194 E축) — progress-tracker 마지막 변동 ${ageLabel} 전`, `## ⚠ No progress detected — progress-tracker last changed ${ageLabel} ago`)));
 +                  log(yel(_ht(`## ⚠ 진척 정체 감지 (E축) — progress-tracker 마지막 변동 ${ageLabel} 전`, `## ⚠ No progress detected — progress-tracker last changed ${ageLabel} ago`)));
-@@ -19261 +19308 @@
+@@ -19261 +19323 @@
 -                    log(yel(_ht(`  🔴 7일+ 장기 정체 (${days}d) — 장기 맥락 손실 위험 (1.9.196 D축)`, `  🔴 stalled for 7+ days (${days}d) — long-term context at risk`)));
 +                    log(yel(_ht(`  🔴 7일+ 장기 정체 (${days}d) — 장기 맥락 손실 위험 (D축)`, `  🔴 stalled for 7+ days (${days}d) — long-term context at risk`)));
-@@ -19285 +19332 @@
+@@ -19285 +19347 @@
 -                log(blu(_ht(`## task 매칭 best agent (1.9.198 B축) — 키워드 "${keyword}"`, `## Best agent for this task — keyword "${keyword}"`)));
 +                log(blu(_ht(`## task 매칭 best agent (B축) — 키워드 "${keyword}"`, `## Best agent for this task — keyword "${keyword}"`)));
-@@ -19317 +19364,2 @@
+@@ -19317 +19379,2 @@
 -                  const oldest = matches[matches.length - 1];
 +                  matches.sort((a, b) => a.date.localeCompare(b.date));
 +                  const oldest = matches[0], newest = matches[matches.length - 1];
-@@ -19319 +19367 @@
+@@ -19319 +19382 @@
 -                  log(blu(_ht(`## 장기 lessons 회고 (1.9.196 D축) — 키워드 "${keyword}" 관련 30일+ ${matches.length}건`, `## Long-term lessons — ${matches.length} lesson(s) 30+ days old about "${keyword}"`)));
 +                  log(blu(_ht(`## 장기 lessons 회고 (D축) — 키워드 "${keyword}" 관련 30일+ ${matches.length}건`, `## Long-term lessons — ${matches.length} lesson(s) 30+ days old about "${keyword}"`)));
-@@ -19322 +19370 @@
+@@ -19322 +19385 @@
 -                    log(dim(_ht(`  최근30일+: ${matches[0].date} — ${matches[0].title}`, `  most recent of those: ${matches[0].date} — ${matches[0].title}`)));
 +                    log(dim(_ht(`  최근30일+: ${newest.date} — ${newest.title}`, `  most recent of those: ${newest.date} — ${newest.title}`)));
-@@ -19346 +19394 @@
+@@ -19346 +19409 @@
 -          log(yel(_ht(`## ⚡ 사용자 조기 진입 감지 (1.9.205) — 등록된 wakeup ${Math.abs(wakeup.deltaMin)}분 후 fire 예정`, `## ⚡ Early start detected — the registered wakeup fires in ${Math.abs(wakeup.deltaMin)} min`)));
 +          log(yel(_ht(`## ⚡ 사용자 조기 진입 감지 — 등록된 wakeup ${Math.abs(wakeup.deltaMin)}분 후 fire 예정`, `## ⚡ Early start detected — the registered wakeup fires in ${Math.abs(wakeup.deltaMin)} min`)));
-@@ -19352 +19400 @@
+@@ -19352 +19415 @@
 -          log(yel(_ht(`## ⏰ ScheduleWakeup miss 확정 (1.9.205) — 예정 fire ${wakeup.deltaMin}분 전`, `## ⏰ ScheduleWakeup missed — scheduled fire was ${wakeup.deltaMin} min ago`)));
 +          log(yel(_ht(`## ⏰ ScheduleWakeup miss 확정 — 예정 fire ${wakeup.deltaMin}분 전`, `## ⏰ ScheduleWakeup missed — scheduled fire was ${wakeup.deltaMin} min ago`)));
-@@ -19369 +19417 @@
+@@ -19369 +19432 @@
 -          log(grn(_ht(`  ✓ ScheduleWakeup 정시 진입 (1.9.205, delta ${wakeup.deltaMin}분)`, `  ✓ ScheduleWakeup on time (delta ${wakeup.deltaMin} min)`)));
 +          log(grn(_ht(`  ✓ ScheduleWakeup 정시 진입 (delta ${wakeup.deltaMin}분)`, `  ✓ ScheduleWakeup on time (delta ${wakeup.deltaMin} min)`)));
-@@ -19384 +19432 @@
+@@ -19384 +19447 @@
 -      log(cy(_ht(`## auto-resume-plan 로드 (1.9.203) — ${_autoResumePlan.ageMin}분 전 저장 ${status}`, `## auto-resume-plan loaded — saved ${_autoResumePlan.ageMin} min ago ${status}`)));
 +      log(cy(_ht(`## auto-resume-plan 로드 — ${_autoResumePlan.ageMin}분 전 저장 ${status}`, `## auto-resume-plan loaded — saved ${_autoResumePlan.ageMin} min ago ${status}`)));
-@@ -19412 +19460 @@
+@@ -19412 +19475 @@
 -          log(red(_t(`## ⏰ ScheduleWakeup miss 강한 의심 (1.9.199) — 이전 handoff ${gapInfo.gapMin}분 전`, `## ⏰ ScheduleWakeup miss strongly suspected — last handoff ${gapInfo.gapMin} min ago`)));
 +          log(red(_t(`## ⏰ ScheduleWakeup miss 강한 의심 — 이전 handoff ${gapInfo.gapMin}분 전`, `## ⏰ ScheduleWakeup miss strongly suspected — last handoff ${gapInfo.gapMin} min ago`)));
-@@ -19419 +19467 @@
+@@ -19419 +19482 @@
 -          log(yel(_t(`## ⏰ ScheduleWakeup 지연 (1.9.199) — 이전 handoff ${gapInfo.gapMin}분 전 (룰: 25분)`, `## ⏰ ScheduleWakeup delayed — last handoff ${gapInfo.gapMin} min ago (rule: 25 min)`)));
 +          log(yel(_t(`## ⏰ ScheduleWakeup 지연 — 이전 handoff ${gapInfo.gapMin}분 전 (룰: 25분)`, `## ⏰ ScheduleWakeup delayed — last handoff ${gapInfo.gapMin} min ago (rule: 25 min)`)));
-@@ -19425 +19473 @@
+@@ -19425 +19488 @@
 -            log(dim(_t(`  ✓ ScheduleWakeup cycle 정상 (gap ${gapInfo.gapMin}분, 룰 25분 — 1.9.199)`, `  ✓ ScheduleWakeup cycle healthy (gap ${gapInfo.gapMin} min, rule 25 min)`)));
 +            log(dim(_t(`  ✓ ScheduleWakeup cycle 정상 (gap ${gapInfo.gapMin}분, 룰 25분)`, `  ✓ ScheduleWakeup cycle healthy (gap ${gapInfo.gapMin} min, rule 25 min)`)));
-@@ -19436,2 +19484,2 @@
+@@ -19436,2 +19499,2 @@
 -            log(yel(_t(`## ⏰ ScheduleWakeup miss 의심 (1.9.196 fallback) — task-log 마지막 ${label} 전`, `## ⏰ ScheduleWakeup miss suspected (fallback) — task-log last modified ${label} ago`)));
 -            log(dim(_t(`  1.9.199 last-handoff.json 첫 기록 — 다음 handoff 부터 정확 측정`, `  first last-handoff.json record — precise measurement from the next handoff`)));
 +            log(yel(_t(`## ⏰ ScheduleWakeup miss 의심 (fallback) — task-log 마지막 ${label} 전`, `## ⏰ ScheduleWakeup miss suspected (fallback) — task-log last modified ${label} ago`)));
 +            log(dim(_t(`  last-handoff.json 첫 기록 — 다음 handoff 부터 정확 측정`, `  first last-handoff.json record — precise measurement from the next handoff`)));
-@@ -19505 +19553 @@
+@@ -19505 +19568 @@
 -        log(mdCy(t(`최근 24h 메모리 변동 (1.9.121): ${deltas.join(' · ')}`, `memory changes in last 24h: ${deltas.join(' · ')}`)));
 +        log(mdCy(t(`최근 24h 메모리 변동: ${deltas.join(' · ')}`, `memory changes in last 24h: ${deltas.join(' · ')}`)));
-@@ -19546 +19594 @@
+@@ -19546 +19609 @@
 -        log(arcCy(_ht(`최근 24h archive (1.9.129): ${archiveDeltas.join('/')} (${totalRecent}건 archived) — 복원 후보`, `archived in the last 24h: ${archiveDeltas.join('/')} (${totalRecent} archived) — restore candidates`)));
 +        log(arcCy(_ht(`최근 24h archive: ${archiveDeltas.join('/')} (${totalRecent}건 archived) — 복원 후보`, `archived in the last 24h: ${archiveDeltas.join('/')} (${totalRecent} archived) — restore candidates`)));
-@@ -19579 +19627 @@
+@@ -19579 +19642 @@
 -            log(fiCy(`Feature Graph (1.9.141): "${current.request.slice(0, 40)}" → ${main.id} ${main.title} (impact: ${impacted.length} features)`));
 +            log(fiCy(`Feature Graph: "${current.request.slice(0, 40)}" → ${main.id} ${main.title} (impact: ${impacted.length} features)`));
-@@ -19610 +19658 @@
+@@ -19610 +19673 @@
 -          log(edCy(t(`실행 환경 (1.9.145): ⚠ PATH 누락 ${diff.missing.length}건 — npm run 시 실패 가능`, `Runtime environment: ⚠ ${diff.missing.length} PATH tool(s) missing — npm run may fail`)));
 +          log(edCy(t(`실행 환경: ⚠ PATH 누락 ${diff.missing.length}건 — npm run 시 실패 가능`, `Runtime environment: ⚠ ${diff.missing.length} PATH tool(s) missing — npm run may fail`)));
-@@ -19614 +19662 @@
+@@ -19614 +19677 @@
 -          log(edCy(t(`실행 환경 (1.9.145): 변동 ${diff.changes.length}건 감지`, `Runtime environment: ${diff.changes.length} change(s) detected`)));
 +          log(edCy(t(`실행 환경: 변동 ${diff.changes.length}건 감지`, `Runtime environment: ${diff.changes.length} change(s) detected`)));
-@@ -19662 +19710 @@
+@@ -19662 +19725 @@
 -        log(red(t(`## 보안 요약 (1.9.76) — ${issues.length}건 주의`, `## Security summary — ${issues.length} to review`)));
 +        log(red(t(`## 보안 요약 — ${issues.length}건 주의`, `## Security summary — ${issues.length} to review`)));
-@@ -19669,2 +19717 @@
+@@ -19669,2 +19732 @@
 -        const giLines2 = giText2.split('\n').map(l => l.trim());
 -        const envInGitignore = giLines2.includes('.env') || giLines2.includes('/.env');
 +        const envInGitignore = _gitignoreMatch(giText2, '.env');
-@@ -19673 +19720 @@
+@@ -19673 +19735 @@
 -          log(yel(t(`  🚨 CRITICAL (1.9.80): .env가 .gitignore에 없습니다! 시크릿 노출 위험 — 즉시 \`leerness audit --fix\` 권장.`, `  🚨 CRITICAL: .env is not in .gitignore! secret-exposure risk — run \`leerness audit --fix\` now.`)));
 +          log(yel(t(`  🚨 CRITICAL: .env가 .gitignore에 없습니다! 시크릿 노출 위험 — 즉시 \`leerness audit --fix\` 권장.`, `  🚨 CRITICAL: .env is not in .gitignore! secret-exposure risk — run \`leerness audit --fix\` now.`)));
-@@ -19705 +19752 @@
+@@ -19705 +19767 @@
 -    log(cy(t('## 세션 워크플로 6단계 (1.9.39+, AI 하네스 엔지니어링)', '## Session workflow — 6 steps (AI harness engineering)')));
 +    log(cy(t('## 세션 워크플로 6단계 (AI 하네스 엔지니어링)', '## Session workflow — 6 steps (AI harness engineering)')));
-@@ -19792,0 +19840,4 @@
+@@ -19792,0 +19855,4 @@
 +function _workspaceNextTask(p, rows) {
 +  try { return { row: require('../lib/session-next').selectNextTask(rows, exists(planPath(p)) ? read(planPath(p)) : '').row, error: null }; }
 +  catch (e) { return { row: null, error: (e && e.code) || 'invalid_next_task' }; }
 +}
-@@ -19800,0 +19852 @@
+@@ -19800,0 +19867 @@
 +  const sinceDayOnly = !!sinceArg && /[mh]$/i.test(String(sinceArg).trim());
-@@ -19812,0 +19865 @@
+@@ -19812,0 +19880 @@
 +      const nextSel = _workspaceNextTask(p, rows);
-@@ -19822 +19875,2 @@
+@@ -19822 +19890,2 @@
 -        nextAction: (buckets['in-progress']?.[0]?.nextAction) || (buckets['planned']?.[0]?.nextAction) || (buckets['requested']?.[0]?.nextAction) || null,
 +        nextAction: (nextSel.row && nextSel.row.nextAction) || null,
 +        ...(nextSel.error ? { nextTaskError: nextSel.error } : {}),
-@@ -19827 +19881 @@
+@@ -19827 +19896 @@
 -    log(JSON.stringify({ workspace: path.basename(rootBase), since: sinceCutoff, previewApproval: _workspacePreviewApproval(projects), projects, totals: {
 +    log(JSON.stringify({ workspace: path.basename(rootBase), since: sinceCutoff, ...(sinceDayOnly ? { sinceGranularity: 'day' } : {}), previewApproval: _workspacePreviewApproval(projects), projects, totals: {
-@@ -19855 +19909 @@
+@@ -19855 +19924 @@
 -    log(_ht(`leerness compact (1.9.22): ${paths.length}프로젝트 · ${totalDone}/${totalTasks}(${totalTasks?Math.round(totalDone/totalTasks*100):0}%) done · WIP ${totalWIP}${sinceCutoff?` · 🆕${totalRecent}`:''} · ${_previewApprovalText(workspaceApproval)}`, `leerness compact (1.9.22): ${paths.length} projects · ${totalDone}/${totalTasks}(${totalTasks?Math.round(totalDone/totalTasks*100):0}%) done · WIP ${totalWIP}${sinceCutoff?` · 🆕${totalRecent}`:''} · ${_previewApprovalText(workspaceApproval)}`));
 +    log(_ht(`leerness compact: ${paths.length}프로젝트 · ${totalDone}/${totalTasks}(${totalTasks?Math.round(totalDone/totalTasks*100):0}%) done · WIP ${totalWIP}${sinceCutoff?` · 🆕${totalRecent}`:''} · ${_previewApprovalText(workspaceApproval)}`, `leerness compact: ${paths.length} projects · ${totalDone}/${totalTasks}(${totalTasks?Math.round(totalDone/totalTasks*100):0}%) done · WIP ${totalWIP}${sinceCutoff?` · 🆕${totalRecent}`:''} · ${_previewApprovalText(workspaceApproval)}`));
-@@ -19860 +19914 @@
+@@ -19860 +19929 @@
 -  log(_ht(`# Workspace Handoff — ${paths.length}개 프로젝트 (1.9.22)`, `# Workspace Handoff — ${paths.length} project(s)`));
 +  log(_ht(`# Workspace Handoff — ${paths.length}개 프로젝트`, `# Workspace Handoff — ${paths.length} project(s)`));
-@@ -19862,0 +19917 @@
+@@ -19862,0 +19932 @@
 +  if (sinceCutoff && sinceDayOnly) log(_ht('  ※ progress-tracker 는 날짜만 기록하므로 시간·분 단위 창은 날짜 단위로 적용됩니다 (해당 날짜의 항목 전체 포함).', '  Note: progress-tracker records dates only, so hour/minute windows are applied by date (every item on a matching date is included).'));
-@@ -19879 +19934,2 @@
+@@ -19879 +19949,2 @@
 -    const nx = (buckets['in-progress']?.[0]) || (buckets['planned']?.[0]) || null;
 +    const nextSel = _workspaceNextTask(p, rows);
 +    const nx = nextSel.row;
-@@ -19885,0 +19942 @@
+@@ -19885,0 +19957 @@
 +    else if (nextSel.error) log(_ht(`    └ 다음: 작업 우선순위 미확인 (${nextSel.error})`, `    └ next: task priority unavailable (${nextSel.error})`));
-@@ -20185 +20242 @@
+@@ -20185 +20257 @@
 -  log(`# Workspace Reuse Map — ${paths.length}개 프로젝트 / ${byCap.size}개 capability (1.9.18)`);
 +  log(`# Workspace Reuse Map — ${paths.length}개 프로젝트 / ${byCap.size}개 capability`);
-@@ -21229,18 +21286 @@
+@@ -21229,18 +21301 @@
 -const _LEERNESS_NONSECRET_KEYS = new Set([
 -  'LEERNESS_OLLAMA_BASE_URL',     
 -  'LEERNESS_OLLAMA_MODEL',        
@@ -1976,18 +2039,18 @@ index fb0c37b5..a858997d 100644
 -  'LEERNESS_SKILL_AUTO_PRESETS'
 -]);
 +const { NONSECRET_KEYS: _LEERNESS_NONSECRET_KEYS } = require('../lib/project-config');
-@@ -21257,2 +21297 @@
+@@ -21257,2 +21312 @@
 -      if (k.startsWith('_')) continue;
 -      if (_isSecretKey(k)) continue;   
 +      if (!_LEERNESS_NONSECRET_KEYS.has(k) || _isSecretKey(k)) continue;
-@@ -21279 +21317,0 @@
+@@ -21279 +21332,0 @@
 -    let pendingComment = null;   
-@@ -21284 +21321,0 @@
+@@ -21284 +21336,0 @@
 -        if (/^\s*#/.test(line)) pendingComment = remaining.length;
-@@ -21289 +21326 @@
+@@ -21289 +21341 @@
 -      if (!m) { remaining.push(line); pendingComment = null; continue; }
 +      if (!m) { remaining.push(line); continue; }
-@@ -21296,8 +21332,0 @@
+@@ -21296,8 +21347,0 @@
 -        if (pendingComment !== null) {
 -           
 -           
@@ -1996,28 +2059,28 @@ index fb0c37b5..a858997d 100644
 -          }
 -        }
 -        pendingComment = null;
-@@ -21307 +21335,0 @@
+@@ -21307 +21350,0 @@
 -      pendingComment = null;
-@@ -21320 +21348,2 @@
+@@ -21320 +21363,2 @@
 -    const next = cleaned.join('\n').replace(/\n+$/, '\n');
 +    const eol = /\r\n/.test(txt) ? '\r\n' : '\n';
 +    const next = cleaned.join(eol).replace(/(?:\r?\n)+$/, eol);
-@@ -21350 +21378,0 @@
+@@ -21350 +21393,0 @@
 -      _version: VERSION,
-@@ -21352 +21380,2 @@
+@@ -21352 +21395,2 @@
 -      ...kv
 +      ...kv,
 +      _version: VERSION
-@@ -21434 +21463 @@
+@@ -21434 +21478 @@
 -    log('정책 (1.9.22): 환경변수 없으면 LLM 호출 자동 시작 금지. 사용자 동의 후 활성화.');
 +    log('정책: 환경변수 없으면 LLM 호출 자동 시작 금지. 사용자 동의 후 활성화.');
-@@ -21451 +21480 @@
+@@ -21451 +21495 @@
 -  log(`# leerness orchestrate (1.9.22)`);
 +  log(`# leerness orchestrate`);
-@@ -21494 +21523 @@
+@@ -21494 +21538 @@
 -    log(`## 최고 응답 (1.9.155 multi-signal consensus — 토큰 + 단어중복도 + 길이 정규화)`);
 +    log(`## 최고 응답 (multi-signal consensus — 토큰 + 단어중복도 + 길이 정규화)`);
-@@ -21552,6 +21581,2 @@
+@@ -21552,6 +21596,2 @@
 -  const paths = _collectWorkspacePaths(root);
 -  if (!paths.length) {
 -     
@@ -2026,64 +2089,64 @@ index fb0c37b5..a858997d 100644
 -  const allPaths = _collectWorkspacePaths(root);
 +  let allPaths = _collectWorkspacePaths(root);
 +  if (!allPaths.length) allPaths = _collectWorkspacePaths(root, 'ko', { allApps: true });
-@@ -21621 +21646 @@
+@@ -21621 +21661 @@
 -    if (tests && tests.some(t => t.passed === false)) process.exitCode = 1;
 +    if (!definedAt.length || (tests && tests.some(t => t.passed === false))) process.exitCode = 1;
-@@ -21634 +21659 @@
+@@ -21634 +21674 @@
 -  log(`# leerness impact "${target}" (1.9.24)`);
 +  log(`# leerness impact "${target}"`);
-@@ -21740 +21765 @@
+@@ -21740 +21780 @@
 -  log(cy(`# leerness honesty-check (1.9.305) — AI 인식론적 정직성 점검`));
 +  log(cy(`# leerness honesty-check — AI 인식론적 정직성 점검`));
-@@ -21775 +21800 @@
+@@ -21775 +21815 @@
 -  log(`신뢰도 (1.9.27): ${confidence.toFixed(2)} / 1.00${confidence < 0.5 ? ' ⚠ 낮음' : confidence < 0.9 ? ' ⓘ 보통' : ' ✓ 높음'}`);
 +  log(`신뢰도: ${confidence.toFixed(2)} / 1.00${confidence < 0.5 ? ' ⚠ 낮음' : confidence < 0.9 ? ' ⓘ 보통' : ' ✓ 높음'}`);
-@@ -21792 +21817 @@
+@@ -21792 +21832 @@
 -  log(`정책 (1.9.26): 의심 발견 시 exit 1 — task 상태 재검토 권장`);
 +  log(`정책: 의심 발견 시 exit 1 — task 상태 재검토 권장`);
-@@ -21799,0 +21825 @@
+@@ -21799,0 +21840 @@
 +function _personaIdOk(id) { return typeof id === 'string' && id.length > 0 && id.length <= 64 && !id.startsWith('.') && !/[\\/:*?"<>|\u0000-\u001f\u007f]/.test(id) && !(id in Object.prototype); }
-@@ -21801,2 +21827,2 @@
+@@ -21801,2 +21842,2 @@
 -   
 -  if (BUILT_IN_PERSONAS[id]) return BUILT_IN_PERSONAS[id];
 +  if (!_personaIdOk(id)) return null;
 +  if (Object.prototype.hasOwnProperty.call(BUILT_IN_PERSONAS, id)) return BUILT_IN_PERSONAS[id];
-@@ -21987 +22013 @@
+@@ -21987 +22028 @@
 -    log(`# leerness slash-commands --refresh (1.9.267, UR-0021 3단계)${opts.dryRun ? ' [dry-run]' : ''}`);
 +    log(`# leerness slash-commands --refresh${opts.dryRun ? ' [dry-run]' : ''}`);
-@@ -21999 +22025 @@
+@@ -21999 +22040 @@
 -    if (opts.json) { log(JSON.stringify({ error: `unknown agent: ${agentArg}`, known: Object.keys(all) }, null, 2)); return; }
 +    if (opts.json) { log(JSON.stringify({ error: `unknown agent: ${agentArg}`, known: Object.keys(all) }, null, 2)); process.exitCode = 1; return; }
-@@ -22018 +22044 @@
+@@ -22018 +22059 @@
 -  log(cy(`# leerness slash-commands (1.9.265, UR-0021) — CLI 에이전트별 슬래시 명령어`));
 +  log(cy(`# leerness slash-commands — CLI 에이전트별 슬래시 명령어`));
-@@ -22140 +22166 @@
+@@ -22140 +22181 @@
 -    log(`# leerness provider list (1.9.157)`);
 +    log(`# leerness provider list`);
-@@ -22168,0 +22195,3 @@
+@@ -22168,0 +22210,3 @@
 +    const given = flag => arg(flag, null) !== null;
 +    if (!_binSafe(bin)) return fail(`잘못된 --bin: ${String(bin).slice(0, 80)} (실행파일 이름/경로만 허용 — 선행 -·공백·셸 메타문자 불가)`);
 +    if (!_argsSafe(versionArgs)) return fail(`잘못된 --version-args: ${versionArgs.join(' ').slice(0, 80)} (셸 메타문자 불가)`);
-@@ -22174 +22203,5 @@
+@@ -22174 +22218,5 @@
 -    if (existingIdx >= 0) userList[existingIdx] = { ...userList[existingIdx], ...entry };
 +    if (existingIdx >= 0) {
 +      const patch = { id };
 +      for (const [flag, key] of [['--bin', 'bin'], ['--env-flag', 'envFlag'], ['--version-args', 'versionArgs'], ['--desc', 'desc'], ['--install-hint', 'installHint']]) if (given(flag)) patch[key] = entry[key];
 +      userList[existingIdx] = { ...userList[existingIdx], ...patch };
 +    }
-@@ -22225 +22258 @@
+@@ -22225 +22273 @@
 -      log(`# leerness provider sync (1.9.160)`);
 +      log(`# leerness provider sync`);
-@@ -22323 +22356 @@
+@@ -22323 +22371 @@
 -      log(`# leerness provider probe (1.9.195 — A축 범용 AI 하네스 보강)`);
 +      log(`# leerness provider probe (A축 범용 AI 하네스 보강)`);
-@@ -22357,0 +22391,5 @@
+@@ -22357,0 +22406,5 @@
 +function _hostWithScheme(host) {
 +  const h = String(host || '').trim().replace(/\/+$/, '');
 +  if (!h) return '';
 +  return /^[a-z][a-z0-9+.-]*:\/\//i.test(h) ? h : 'http://' + h;
 +}
-@@ -22361,19 +22399,3 @@
+@@ -22361,19 +22414,3 @@
 -  const cliTargets = [
 -    { id: 'claude', bin: 'claude' },
 -    { id: 'codex', bin: 'codex' },
@@ -2106,40 +2169,40 @@ index fb0c37b5..a858997d 100644
 +  for (const agent of _allProviders(root)) {
 +    const checked = _checkAgent(agent);
 +    result.cli.push({ id: agent.id, bin: agent.bin, found: checked.installed, version: checked.version });
-@@ -22383,3 +22405,3 @@
+@@ -22383,3 +22420,3 @@
 -    { name: 'ollama', url: process.env.OLLAMA_HOST || 'http://localhost:11434', path: '/api/tags' },
 -    { name: 'lmstudio', url: process.env.LMSTUDIO_HOST || 'http://localhost:1234', path: '/v1/models' },
 -    { name: 'llama.cpp', url: process.env.LLAMACPP_HOST || 'http://localhost:8080', path: '/health' }
 +    { name: 'ollama', url: _hostWithScheme(process.env.OLLAMA_HOST) || 'http://localhost:11434', path: '/api/tags' },
 +    { name: 'lmstudio', url: _hostWithScheme(process.env.LMSTUDIO_HOST) || 'http://localhost:1234', path: '/v1/models' },
 +    { name: 'llama.cpp', url: _hostWithScheme(process.env.LLAMACPP_HOST) || 'http://localhost:8080', path: '/health' }
-@@ -22427 +22449 @@
+@@ -22427 +22464 @@
 -  if (!c || !c.result) return { ready: 0, total: 11, ageHours: null, expired: false, hasCache: false };
 +  if (!c || !c.result) return { ready: 0, total: 0, ageHours: null, expired: false, hasCache: false };
-@@ -22722 +22744 @@
+@@ -22722 +22759 @@
 -      log('       ' + C.b('npm i leerness@latest') + C.d('              # 프로젝트 로컬 설치 (1.9.183 권장)'));
 +      log('       ' + C.b('npm i leerness@latest') + C.d('              # 프로젝트 로컬 설치 (권장)'));
-@@ -22871 +22893 @@
+@@ -22871 +22908 @@
 -    section(t('🧠 메모리 5종 CRUD (1.9.142 — cascade 방지)', '🧠 Memory (5 surfaces)'));
 +    section(t('🧠 메모리 5종 CRUD (cascade 방지)', '🧠 Memory (5 surfaces)'));
-@@ -22877 +22899 @@
+@@ -22877 +22914 @@
 -    cmd('leerness feature add "<feature>" --files "..."',   t('Feature Graph 노드 (1.9.141)', 'Feature Graph node'));
 +    cmd('leerness feature add "<feature>" --files "..."',   t('Feature Graph 노드', 'Feature Graph node'));
-@@ -22879 +22901 @@
+@@ -22879 +22916 @@
 -    section(t('🔗 인과관계 + 영향 추적 (1.9.141~143)', '🔗 Causality + impact tracking'));
 +    section(t('🔗 인과관계 + 영향 추적', '🔗 Causality + impact tracking'));
-@@ -22897 +22919 @@
+@@ -22897 +22934 @@
 -    cmd('leerness release pack --close --auto-main-push', t('한 줄 release (1.9.140 main push 통합)', 'one-line release (with main push)'));
 +    cmd('leerness release pack --close --auto-main-push', t('한 줄 release (main push 통합)', 'one-line release (with main push)'));
-@@ -23164 +23186 @@
+@@ -23164 +23201 @@
 -    log(`# 페르소나 카탈로그 (1.9.29)`);
 +    log(`# 페르소나 카탈로그`);
-@@ -23186,0 +23209 @@
+@@ -23186,0 +23224 @@
 +    if (!_personaIdOk(idOrName)) { fail(`쓸 수 없는 persona id: ${JSON.stringify(_lineSafe(idOrName))} (경로 구분자·. 시작·제어문자·객체 내장 이름 불가)`); return process.exit(1); }
-@@ -23239,0 +23263,2 @@
+@@ -23239,0 +23278,2 @@
 +  const emitted = [];
 +  const say = s => { emitted.push(s); log(s); };
-@@ -23241,12 +23266,12 @@
+@@ -23241,12 +23281,12 @@
 -    if (personas.length > 1) log(`\n${'='.repeat(70)}`);
 -    log(`# Review Prompt — ${p.name} (${p.id})`);
 -    log(`## 대상: ${target} (${fileSize} bytes)`);
@@ -2164,105 +2227,105 @@ index fb0c37b5..a858997d 100644
 +    say('```javascript');
 +    say(fileContent);
 +    say('```');
-@@ -23262 +23287,3 @@
+@@ -23262 +23302,3 @@
 -    log(`\n💡 \`leerness review <file> --persona X > out.md\` 로 저장 가능`);
 +    writeUtf8(outFile, emitted.join('\n') + '\n');
 +    const savedRel = path.relative(root, outFile).split(path.sep).join('/');
 +    log(_uiLang(root) === 'en' ? `\n✓ Review prompt saved: ${savedRel}` : `\n✓ 리뷰 프롬프트 저장: ${savedRel}`);
-@@ -23623 +23650 @@
+@@ -23623 +23665 @@
 -function _collectWorkspacePaths(rootBase, uiLang = 'ko') {
 +function _collectWorkspacePaths(rootBase, uiLang = 'ko', opts = {}) {
-@@ -23631 +23658 @@
+@@ -23631 +23673 @@
 -  if (has('--all-apps')) {
 +  if (has('--all-apps') || opts.allApps) {
-@@ -23647 +23674 @@
+@@ -23647 +23689 @@
 -      const abs = path.resolve(p.trim());
 +      const abs = path.resolve(rootBase, p.trim());
-@@ -23704 +23730,0 @@
+@@ -23704 +23745,0 @@
 -    const delta = ((b - a) / a) * 100;
-@@ -23708 +23734,4 @@
+@@ -23708 +23749,4 @@
 -    log(`  - 변화: ${delta > 0 ? '+' : ''}${delta.toFixed(1)}% ${delta < 0 ? '🚀 빨라짐' : delta > 10 ? '⚠ 느려짐' : ''}`);
 +    if (a > 0) {
 +      const delta = ((b - a) / a) * 100;
 +      log(`  - 변화: ${delta > 0 ? '+' : ''}${delta.toFixed(1)}% ${delta < 0 ? '🚀 빨라짐' : delta > 10 ? '⚠ 느려짐' : ''}`);
 +    }
-@@ -23858 +23887,3 @@
+@@ -23858 +23902,3 @@
 -  const tokens = String(topic).split(/\s+/).filter(t => t.length >= 2);
 +  const allTokens = String(topic).split(/\s+/).filter(Boolean);
 +  const longTokens = allTokens.filter(t => t.length >= 2);
 +  const tokens = longTokens.length ? longTokens : allTokens;
-@@ -23860 +23891 @@
+@@ -23860 +23906 @@
 -  function matches(text) { return wordRes.every(re => re.test(text)); }
 +  function matches(text) { return wordRes.length > 0 && wordRes.every(re => re.test(text)); }
-@@ -24133 +24164 @@
+@@ -24133 +24179 @@
 -  if (!topic) return fail('topic required (e.g., brainstorm "API rate limit")');
 +  if (!String(topic || '').trim()) return fail('topic required (e.g., brainstorm "API rate limit")');
-@@ -24202 +24233 @@
+@@ -24202 +24248 @@
 -    log(`\n## 📒 같은 주제 이전 skill match 이력 (${hits.skillHistory.length}) — 1.9.68 누적`);
 +    log(`\n## 📒 같은 주제 이전 skill match 이력 (${hits.skillHistory.length})`);
-@@ -24207 +24238 @@
+@@ -24207 +24253 @@
 -    log(`\n## 📜 task-log 실패 라인 (${hits.taskLogFails.length}) — 1.9.67 인덱스 + brainstorm`);
 +    log(`\n## 📜 task-log 실패 라인 (${hits.taskLogFails.length})`);
-@@ -24212 +24243 @@
+@@ -24212 +24258 @@
 -    log(`\n## 💡 관련 lessons (${hits.lessonsExplicit.length}) — Memory Surface lessons.md 직접 매칭 (1.9.116)`);
 +    log(`\n## 💡 관련 lessons (${hits.lessonsExplicit.length}) — Memory Surface lessons.md 직접 매칭`);
-@@ -24217 +24248 @@
+@@ -24217 +24263 @@
 -    log(`\n## 🗺  관련 plan milestones (${hits.planMilestones.length}) — plan.md 매칭 (1.9.116)`);
 +    log(`\n## 🗺  관련 plan milestones (${hits.planMilestones.length}) — plan.md 매칭`);
-@@ -24224 +24255 @@
+@@ -24224 +24270 @@
 -      log(`\n## 🗑  archive 후보 (${archiveTotal}) — 과거에 제거됐던 ideas; 복원 검토 가능 (1.9.131)`);
 +      log(`\n## 🗑  archive 후보 (${archiveTotal}) — 과거에 제거됐던 ideas; 복원 검토 가능`);
-@@ -24413 +24444 @@
+@@ -24413 +24459 @@
 -        .map(([k, v]) => `<div class="row"><span class="dot" style="background:${/#[0-9a-f]{3,8}/i.test(v) ? v : 'var(--lr-muted, #94a3b8)'}"></span><strong>${_esc(k)}</strong> <span class="meta">${_esc(v)}</span></div>`).join('')
 +        .map(([k, v]) => `<div class="row"><span class="dot" style="background:${/^#[0-9a-f]{3,8}$/i.test(v) ? v : 'var(--lr-muted, #94a3b8)'}"></span><strong>${_esc(k)}</strong> <span class="meta">${_esc(v)}</span></div>`).join('')
-@@ -24925,0 +24957 @@
+@@ -24925,0 +24972 @@
 +  if (!_requireInit(root, 'rule stop')) return;
-@@ -24931,0 +24964 @@
+@@ -24931,0 +24979 @@
 +  _autoRoadmap(root, 'data-change');
-@@ -24935,0 +24969 @@
+@@ -24935,0 +24984 @@
 +  if (!_requireInit(root, 'rule resume-all')) return;
-@@ -24941,0 +24976 @@
+@@ -24941,0 +24991 @@
 +  _autoRoadmap(root, 'data-change');
-@@ -25055,0 +25091 @@
+@@ -25055,0 +25106 @@
 +  if (has('--json')) log(JSON.stringify({ ok: true, from: cur, to: next, kind, ownSurfacesSynced: !!syncedOwnSurfaces }, null, 2));
-@@ -25069 +25105 @@
+@@ -25069 +25120 @@
 -    const cur = input.text; let output;
 +    const cur = input.text && !input.text.endsWith('\n') ? input.text + '\n' : input.text; let output;
-@@ -25073 +25109 @@
+@@ -25073 +25124 @@
 -        output = cur.slice(0, insertPos) + `\n- ${text}\n` + cur.slice(insertPos);
 +        output = cur[insertPos] === '\n' ? cur.slice(0, insertPos + 1) + `- ${text}\n` + cur.slice(insertPos + 1) : cur.slice(0, insertPos) + `\n- ${text}\n` + cur.slice(insertPos);
-@@ -25092 +25128 @@
+@@ -25092 +25143 @@
 -  const m = url.match(/github\.com[:/]([^/]+)\/([^/.]+)(?:\.git)?/);
 +  const m = url.match(/github\.com[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/);
-@@ -25104 +25140 @@
+@@ -25104 +25155 @@
 -  if (!remote || remote.host !== 'github') { fail('GitHub remote가 없습니다 — gh-pages 배포 불가'); process.exitCode = 1; return; }
 +  if (!remote || remote.host !== 'github') { fail('GitHub remote가 없습니다 — gh-pages 배포 불가'); process.exitCode = 1; return false; }
-@@ -25106 +25142 @@
+@@ -25106 +25157 @@
 -  if (!exists(src)) { fail(`소스 파일 없음: ${src}`); process.exitCode = 1; return; }
 +  if (!exists(src)) { fail(`소스 파일 없음: ${src}`); process.exitCode = 1; return false; }
-@@ -25120 +25156,2 @@
+@@ -25120 +25171,2 @@
 -  if (wtR.status !== 0) { fail('worktree 생성 실패: ' + (wtR.stderr || '').slice(0, 200)); process.exitCode = 1; return; }
 +  if (wtR.status !== 0) { fail('worktree 생성 실패: ' + (wtR.stderr || '').slice(0, 200)); process.exitCode = 1; return false; }
 +  let deployed = false;
-@@ -25137 +25174 @@
+@@ -25137 +25189 @@
 -      const pushR = _gitSpawn(['push', 'origin', 'gh-pages'], { cwd: wt, encoding: 'utf8' });
 +      const pushR = _gitSpawn(['push', 'origin', 'HEAD:refs/heads/gh-pages'], { cwd: wt, encoding: 'utf8' });
-@@ -25139 +25176 @@
+@@ -25139 +25191 @@
 -      else ok(`gh-pages push 완료 → https://${remote.owner}.github.io/${remote.repo}/`);
 +      else { deployed = true; ok(`gh-pages push 완료 → https://${remote.owner}.github.io/${remote.repo}/`); }
-@@ -25143,0 +25181 @@
+@@ -25143,0 +25196 @@
 +  return deployed;
-@@ -25152 +25190 @@
+@@ -25152 +25205 @@
 -  log('# leerness release sync-main (1.9.140)');
 +  log('# leerness release sync-main');
-@@ -25156 +25194,5 @@
+@@ -25156 +25209,5 @@
 -  const fromBranch = branchArg || (headR.stdout || '').trim();
 +  const headName = (headR.stdout || '').trim();
 +  if (!branchArg && headName === 'HEAD') { fail('detached HEAD — sync-main 은 source 브랜치가 필요합니다 (--branch <이름>)'); process.exitCode = 1; return; }
 +  let restoreRef = headName;
 +  if (headName === 'HEAD') { const sha = _gitSpawn(['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }); if (sha.status === 0) restoreRef = (sha.stdout || '').trim(); }
 +  const fromBranch = branchArg || headName;
-@@ -25172 +25214,7 @@
+@@ -25172 +25229,7 @@
 -  _gitSpawn(['pull', '--ff-only', remoteName, 'main'], { cwd: root, encoding: 'utf8' });
 +  const pullR = _gitSpawn(['pull', '--ff-only', remoteName, 'main'], { cwd: root, encoding: 'utf8' });
 +  if (pullR.status !== 0 && !/couldn't find remote ref|no such remote|does not appear to be a git repository/i.test((pullR.stderr || '') + (pullR.stdout || ''))) {
@@ -2271,122 +2334,122 @@ index fb0c37b5..a858997d 100644
 +    process.exitCode = 1;
 +    return;
 +  }
-@@ -25186 +25234 @@
+@@ -25186 +25249 @@
 -      _gitSpawn(['checkout', fromBranch], { cwd: root, encoding: 'utf8' });
 +      _gitSpawn(['checkout', restoreRef], { cwd: root, encoding: 'utf8' });
-@@ -25195 +25243 @@
+@@ -25195 +25258 @@
 -    _gitSpawn(['checkout', fromBranch], { cwd: root, encoding: 'utf8' });
 +    _gitSpawn(['checkout', restoreRef], { cwd: root, encoding: 'utf8' });
-@@ -25202,2 +25250,2 @@
+@@ -25202,2 +25265,2 @@
 -  if (pushR.status !== 0) { fail('main push 실패: ' + (pushR.stderr || '').slice(0, 200)); process.exitCode = 1; }
 -  else ok(`main pushed → ${remoteName}/main`);
 +  if (pushR.status !== 0) { fail('main push 실패: ' + (pushR.stderr || '').slice(0, 200)); process.exitCode = 1; _gitSpawn(['checkout', restoreRef], { cwd: root, encoding: 'utf8' }); return; }
 +  ok(`main pushed → ${remoteName}/main`);
-@@ -25205 +25253 @@
+@@ -25205 +25268 @@
 -  _gitSpawn(['checkout', fromBranch], { cwd: root, encoding: 'utf8' });
 +  _gitSpawn(['checkout', restoreRef], { cwd: root, encoding: 'utf8' });
-@@ -25256 +25304 @@
+@@ -25256 +25319 @@
 -    log(rd('# leerness release cleanup (1.9.235) — git 저장소 아님'));
 +    log(rd('# leerness release cleanup — git 저장소 아님'));
-@@ -25261 +25309,4 @@
+@@ -25261 +25324,4 @@
 -  const branchR = _gitSpawn(['branch', '--merged', 'main', '--list', 'release/*'], { cwd: root, encoding: 'utf8' });
 +  let baseBranch = 'main';
 +  let branchR = _gitSpawn(['branch', '--merged', baseBranch, '--list', 'release/*'], { cwd: root, encoding: 'utf8' });
 +  if (branchR.status !== 0) { baseBranch = 'master'; branchR = _gitSpawn(['branch', '--merged', baseBranch, '--list', 'release/*'], { cwd: root, encoding: 'utf8' }); }
 +  if (branchR.status !== 0) { failJson(jsonMode, 'base_branch_missing', 'main/master 브랜치가 없어 merged 여부를 판단할 수 없습니다 — 정리 중단'); return; }
-@@ -25285 +25336 @@
+@@ -25285 +25351 @@
 -      const r = _gitSpawn(['branch', '-d', b], { cwd: root, encoding: 'utf8' });
 +      const r = _gitSpawn(['branch', '-D', b], { cwd: root, encoding: 'utf8' });
-@@ -25300 +25351 @@
+@@ -25300 +25366 @@
 -  log(cy(`# leerness release cleanup (1.9.235) — local release/* branches 정리`));
 +  log(cy(`# leerness release cleanup — local release/* branches 정리`));
-@@ -25349 +25400 @@
+@@ -25349 +25415 @@
 -  log(`# leerness release channel (1.9.275, UR-0026)`);
 +  log(`# leerness release channel`);
-@@ -25356 +25407 @@
+@@ -25356 +25422 @@
 -  log(`  • 버전 고정     — npm i leerness@${v || '1.9.275'}   ← 재현성 (권장: 운영 코드)`);
 +  log(`  • 버전 고정     — npm i leerness@${v || VERSION}   ← 재현성 (권장: 운영 코드)`);
-@@ -25500 +25551 @@
+@@ -25500 +25566 @@
 -  log(`📦 npm publish 자동 trigger (1.9.178)`);
 +  log(`📦 npm publish 자동 trigger`);
-@@ -25702 +25753 @@
+@@ -25702 +25768 @@
 -  log(`# leerness release pack (1.9.40) — 1.9.140 main-push 통합`);
 +  log(`# leerness release pack — main-push 통합`);
-@@ -25787 +25838 @@
+@@ -25787 +25853 @@
 -    log('\n[auto main push] (1.9.140)');
 +    log('\n[auto main push]');
-@@ -25859 +25910 @@
+@@ -25859 +25925 @@
 -        if (ghR.status !== 0) warn('gh release 생성 실패 (이미 존재할 수 있음)');
 +        if (ghR.status !== 0) { fail('gh release 생성 실패 (이미 존재할 수 있음)'); pubFail = true; }
-@@ -25870 +25921 @@
+@@ -25870 +25936 @@
 -      deployGhPages(root, src);
 +      if (deployGhPages(root, src) !== true) pubFail = true;
-@@ -25894,0 +25946,6 @@
+@@ -25894,0 +25961,6 @@
 +function _commandOnPath(name) {
 +  const dirs = String(process.env.PATH || process.env.Path || '').split(path.delimiter).filter(Boolean);
 +  const exts = process.platform === 'win32' ? ['', ...String(process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)] : [''];
 +  return dirs.some(dir => exts.some(ext => { try { return fs.statSync(path.join(dir, name + ext)).isFile(); } catch { return false; } }));
 +}
 +
-@@ -25916 +25973 @@
+@@ -25916 +25988 @@
 -    else if (exists(path.join(root, 'tsconfig.json'))) tasks.push({ name: 'typecheck', cmd: 'npx --yes tsc --noEmit', runtime: 'node', optional: true });
 +    else if (exists(path.join(root, 'tsconfig.json')) && deps.typescript) tasks.push({ name: 'typecheck', cmd: 'npx --no tsc --noEmit', runtime: 'node', optional: true });
-@@ -25961 +26018 @@
+@@ -25961 +26033 @@
 -    else if (t.optional && r.status === 127) warn(`${t.name} 스킵 (${t.cmd} 없음)`);
 +    else if (t.optional && (r.status === 127 || r.status === 9009 || !_commandOnPath(t.cmd.split(/\s+/)[0]))) warn(`${t.name} 스킵 (${t.cmd} 없음)`);
-@@ -26001,0 +26059 @@
+@@ -26001,0 +26074 @@
 +      if (has('--json')) { log(JSON.stringify({ query: null, total: 0, lessons: [], reason: 'no keyword in the current task' }, null, 2)); return; }
-@@ -26006 +26064 @@
+@@ -26006 +26079 @@
 -    log(`# Lessons --auto (1.9.54): 추출 키워드 "${query}"`);
 +    if (!has('--json')) log(`# Lessons --auto: 추출 키워드 "${query}"`);
-@@ -26246,0 +26305 @@
+@@ -26246,0 +26320 @@
 +  if (!_requireInit(root, 'reuse register')) return;
-@@ -26251,2 +26310,3 @@
+@@ -26251,2 +26325,3 @@
 -    if (text.includes(`| ${name} |`)) return warn(`already registered: ${name}`);
 -    const newRow = `| ${name} | ${where} | ${kind} | ${note} |`, lines = text.split('\n');
 +    const cellName = _cellSafe(name);
 +    if (text.split('\n').some(line => line.startsWith(`| ${cellName} |`))) return warn(`already registered: ${name}`);
 +    const newRow = `| ${cellName} | ${_cellSafe(where)} | ${_cellSafe(kind)} | ${_cellSafe(note)} |`, lines = text.split('\n');
-@@ -26273 +26333,2 @@
+@@ -26273 +26348,2 @@
 -  const tokenSet = new Set(Object.values(tokens).map(v => v.toLowerCase()));
 +  const _hexKey = v => { const h = String(v).toLowerCase(); return /^#[0-9a-f]{3,4}$/.test(h) ? '#' + [...h.slice(1)].map(c => c + c).join('') : h; };
 +  const tokenSet = new Set(Object.values(tokens).map(_hexKey));
-@@ -26279,0 +26341,2 @@
+@@ -26279,0 +26356,2 @@
 +  const _generated = new Set(['roadmap.html', 'leerness.html']);
 +  try { const out = _autoRoadmapConfig(root).outFile; if (out) _generated.add(rel(root, path.resolve(root, out))); } catch {}
-@@ -26284 +26347 @@
+@@ -26284 +26362 @@
 -    if (r === 'roadmap.html' || /\/roadmap\.html$/.test(r)) continue;
 +    if (_generated.has(r) || /(^|\/)(roadmap|leerness)\.html$/.test(r)) continue;
-@@ -26287 +26350 @@
+@@ -26287 +26365 @@
 -    const hexes = [...text.matchAll(/#[0-9a-fA-F]{3,8}\b/g)];
 +    const hexes = [...text.matchAll(/(?<![\w&#\/])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g)];
-@@ -26289 +26352,2 @@
+@@ -26289 +26367,2 @@
 -      const v = h[0].toLowerCase();
 +      const v = _hexKey(h[0]);
 +      if (/^[\w\s.#:>+~,*[\]-]*\{/.test(text.slice(h.index + h[0].length, h.index + h[0].length + 200))) continue;
-@@ -26348,0 +26413,6 @@
+@@ -26348,0 +26428,6 @@
 +function _lessonsWithQuery(root, q) {
 +  const saved = process.argv.slice();
 +  if (!_optionArgv().includes('--query')) { const end = process.argv.indexOf('--'); process.argv.splice(end >= 0 ? end : process.argv.length, 0, '--query', q); }
 +  try { lessonsCmd(root); } finally { process.argv.splice(0, process.argv.length, ...saved); }
 +}
 +
-@@ -26355,2 +26425,2 @@
+@@ -26355,2 +26440,2 @@
 -      const _w = process.stdout.write; let out = '';
 -      try { process.stdout.write = s => { out += s; return true; }; fn(); } catch (e) { out += `\n(error: ${e.message})`; } finally { process.stdout.write = _w; }
 +      const _w = process.stdout.write, _exit = process.exit; let out = '';
 +      try { process.stdout.write = s => { out += s; return true; }; process.exit = code => { throw Object.assign(new Error('exit ' + (code || 0)), { exitRequested: code || 0 }); }; fn(); } catch (e) { if (e && e.exitRequested) process.exitCode = e.exitRequested; else out += `\n(error: ${e.message})`; } finally { process.stdout.write = _w; process.exit = _exit; }
-@@ -26363 +26433 @@
+@@ -26363 +26448 @@
 -      lessons: q0 ? _cap(() => { if (!process.argv.includes('--query')) process.argv.push('--query', q0); lessonsCmd(root); }) : null,
 +      lessons: q0 ? _cap(() => _lessonsWithQuery(root, q0)) : null,
-@@ -26383 +26453 @@
+@@ -26383 +26468 @@
 -  log('## 4. Lessons — 과거 결정/실수 회수 (1.9.7)');
 +  log('## 4. Lessons — 과거 결정/실수 회수');
-@@ -26386,2 +26456 @@
+@@ -26386,2 +26471 @@
 -    if (!process.argv.includes('--query')) { process.argv.push('--query', q); }
 -    lessonsCmd(root);
 +    _lessonsWithQuery(root, q);
-@@ -26870,3 +26939,4 @@
+@@ -26870,3 +26954,4 @@
 -  const ghRelease = has('--gh-release');
 -  const bundleOnly = has('--bundle-only') || !ghRelease;
 -  log(`# leerness skill publish (1.9.47/98)`);
@@ -2394,13 +2457,13 @@ index fb0c37b5..a858997d 100644
 +  const ghRelease = has('--gh-release') && !has('--bundle-only');
 +  log(`# leerness skill publish`);
 +  if (has('--gh-release') && has('--bundle-only')) warn('--bundle-only 가 --gh-release 보다 우선합니다 — GitHub release 는 만들지 않습니다.');
-@@ -26880 +26950 @@
+@@ -26880 +26965 @@
 -        log(`🚨 보안 사전 점검 (1.9.98): ${j.issues.length}건 issue 발견`);
 +        log(`🚨 보안 사전 점검: ${j.issues.length}건 issue 발견`);
-@@ -26886 +26956 @@
+@@ -26886 +26971 @@
 -        log(`✓ 보안 사전 점검 (1.9.98): 통과`);
 +        log(`✓ 보안 사전 점검: 통과`);
-@@ -26899,0 +26970,7 @@
+@@ -26899,0 +26985,7 @@
 +  for (const entry of fs.readdirSync(exportDir, { withFileTypes: true })) {
 +    if (!entry.isDirectory() || ids.includes(entry.name)) continue;
 +    const stale = path.join(exportDir, entry.name);
@@ -2408,22 +2471,22 @@ index fb0c37b5..a858997d 100644
 +    try { head = read(path.join(stale, 'SKILL.md')); } catch { continue; }
 +    if (/^---\r?\n[\s\S]*?^publisher: leerness\s*$/m.test(head)) _removeSync(stale, { recursive: true, force: true });
 +  }
-@@ -26905 +26982,2 @@
+@@ -26905 +26997,2 @@
 -    const description = (data.description || data.displayNameKo || (data.capabilities && data.capabilities[0]) || id).slice(0, 200);    
 +    let description = String(data.description || data.displayNameKo || (data.capabilities && data.capabilities[0]) || id).replace(/\s+/g, ' ').trim().slice(0, 200);
 +    if (/^[-?:,\[\]{}#&*!|>'"%@`]|: | #/.test(description)) description = JSON.stringify(description);    
-@@ -26933,0 +27012 @@
+@@ -26933,0 +27027 @@
 +    if (ghRelease && !made.ok) { fail('archive 가 없어 GitHub release 를 만들 수 없습니다'); return; }
-@@ -26937 +27016 @@
+@@ -26937 +27031 @@
 -      const r = _spawnPortableArgvSync('gh', ['release', 'create', v, tarPath, '--title', `leerness-skills ${v}`, '--notes', `agentskills.io 표준 호환 ${ids.length}개 SKILL.md 번들`], {
 +      const r = _spawnPortableArgvSync('gh', ['release', 'create', v, made.path, '--title', `leerness-skills ${v}`, '--notes', `agentskills.io 표준 호환 ${ids.length}개 SKILL.md 번들`], {
-@@ -26941 +27020 @@
+@@ -26941 +27035 @@
 -      else warn(`gh release 실패 — gh auth status 또는 수동 업로드 필요`);
 +      else fail(`gh release 실패 — gh auth status 또는 수동 업로드 필요`);
-@@ -27069 +27148 @@
+@@ -27069 +27163 @@
 -function benchmarkCmd(root) {
 +async function benchmarkCmd(root) {
-@@ -27081 +27160,12 @@
+@@ -27081 +27175,12 @@
 -    const results = keys.map(k => _runScenario(root, k));
 +    const arena = fs.mkdtempSync(path.join(os.tmpdir(), 'leerness-benchmark-'));
 +    let results;
@@ -2437,62 +2500,62 @@ index fb0c37b5..a858997d 100644
 +      assertCurrentRuntimeWrite(arena);
 +      await fs.promises.rm(arena, { recursive: true, force: true });
 +    }
-@@ -27084 +27174 @@
+@@ -27084 +27189 @@
 -    log(`# leerness benchmark --scenario (1.9.51)`);
 +    log(`# leerness benchmark --scenario`);
-@@ -27103 +27193 @@
+@@ -27103 +27208 @@
 -      log(`# leerness benchmark --measure (1.9.49)`);
 +      log(`# leerness benchmark --measure`);
-@@ -27163 +27253 @@
+@@ -27163 +27268 @@
 -  log(`# leerness benchmark (1.9.46)`);
 +  log(`# leerness benchmark`);
-@@ -27189,2 +27279,4 @@
+@@ -27189,2 +27294,4 @@
 -  const minOccurrence = parseInt(arg('--min', '3'), 10);
 -  const lookbackDays = parseInt(arg('--days', '30'), 10);
 +  const minOccurrence = Number(arg('--min', '3')), lookbackDays = Number(arg('--days', '30'));
 +  for (const [flag, value] of [['--min', minOccurrence], ['--days', lookbackDays]]) {
 +    if (!Number.isInteger(value) || value < 1) return failJson(has('--json'), 'invalid_arg', _uiLang(root) === 'en' ? `${flag} must be an integer >= 1 (got: ${arg(flag, '')})` : `${flag} 은 1 이상의 정수여야 합니다 (받은 값: ${arg(flag, '')})`);
 +  }
-@@ -27191,0 +27284 @@
+@@ -27191,0 +27299 @@
 +  const recent = d => { const t = Date.parse(String(d || '').slice(0, 10)); return !Number.isFinite(t) || t + 86400000 > cutoff; };
-@@ -27198 +27291 @@
+@@ -27198 +27306 @@
 -    const blocks = body.split(/^## \d{4}-\d{2}-\d{2}/m);
 +    const blocks = body.split(/^(?=## \d{4}-\d{2}-\d{2})/m);
-@@ -27199,0 +27293 @@
+@@ -27199,0 +27308 @@
 +      if (!recent((block.match(/^## (\d{4}-\d{2}-\d{2})/) || [])[1])) continue;
-@@ -27211,0 +27306 @@
+@@ -27211,0 +27321 @@
 +    if (!recent(row.updated)) continue;
-@@ -27241 +27336 @@
+@@ -27241 +27351 @@
 -        if (!h) continue;
 +        if (!h || !recent(h[1])) continue;
-@@ -27273,2 +27368,2 @@
+@@ -27273,2 +27383,2 @@
 -  log(`# leerness skill suggest (1.9.53)`);
 -  log(`반복 패턴 자동 감지 (최소 ${minOccurrence}회, ${lookbackDays}일 이내)`);
 +  log(`# leerness skill suggest`);
 +  log(`반복 패턴 자동 감지 (최소 ${minOccurrence}회, task-log/progress/제안 이력은 ${lookbackDays}일 이내 · 명령 사용 통계는 전체 기간)`);
-@@ -27289 +27384 @@
+@@ -27289 +27399 @@
 -  log(`   leerness skill learn <id> --capability "${candidates[0].keyword}" --note "1.9.53 auto-suggest"`);
 +  log(`   leerness skill learn <id> --capability "${candidates[0].keyword}" --note "auto-suggest"`);
-@@ -27404 +27499 @@
+@@ -27404 +27514 @@
 -  log(`# leerness skill search (1.9.90)`);
 +  log(`# leerness skill search`);
-@@ -27426 +27521,2 @@
+@@ -27426 +27536,2 @@
 -    log(`# leerness skill match (1.9.45/50)`);
 +    if (has('--json')) { log(JSON.stringify({ query, total: 0, matched: 0, top: [], reason: 'no installed skills' }, null, 2)); return; }
 +    log(`# leerness skill match`);
-@@ -27440,2 +27536 @@
+@@ -27440,2 +27551 @@
 -    log(`# leerness skill match (1.9.50, embedding)`);
 -    log(`Ollama: ${ollamaUrl} · model: ${model}`);
 +    if (!has('--json')) { log(`# leerness skill match (embedding)`); log(`Ollama: ${ollamaUrl} · model: ${model}`); }
-@@ -27472 +27567 @@
+@@ -27472 +27582 @@
 -  log(`# leerness skill match (1.9.45)`);
 +  log(`# leerness skill match`);
-@@ -27527 +27622 @@
+@@ -27527 +27637 @@
 -  log(`# leerness skill export-all (1.9.43)`);
 +  log(`# leerness skill export-all`);
-@@ -28107,0 +28203 @@
+@@ -28107,0 +28218 @@
 +      maxBuffer: 64 * 1024 * 1024,
-@@ -28261,0 +28358,9 @@
+@@ -28261,0 +28373,9 @@
 +        let pol;
 +        try { pol = _policyEnforce(targetPath, cliArgs.join(' '), _toolDef && _toolDef.requiredTier); }
 +        catch (error) {
@@ -2502,7 +2565,7 @@ index fb0c37b5..a858997d 100644
 +        if (!pol.allowed) {
 +          return send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `정책 차단(policy): ${pol.reason}` }], isError: true } });
 +        }
-@@ -28270,10 +28374,0 @@
+@@ -28270,10 +28389,0 @@
 -        try {
 -           
 -          const pol = _policyEnforce(targetPath, cliArgs.join(' '), _toolDef && _toolDef.requiredTier);
@@ -2513,20 +2576,20 @@ index fb0c37b5..a858997d 100644
 -         
 -         
 -         
-@@ -28417 +28512 @@
+@@ -28417 +28527 @@
 -  log(`# leerness env check (1.9.71)`);
 +  log(`# leerness env check`);
-@@ -28435 +28530,5 @@
+@@ -28435 +28545,5 @@
 -    log(`💡 자동 동기화: leerness env sync${d.inEnvOnly.length ? ' (.env.example에 누락 키 추가 — 값은 빈 문자열)' : ''}`);
 +    const t = (ko, en) => (_uiLang(root) === 'en' ? en : ko);
 +    log(exists(d.examplePath)
 +      ? `💡 자동 동기화: leerness env sync${d.inEnvOnly.length ? ' (.env.example에 누락 키 추가 — 값은 빈 문자열)' : ''}`
 +      : t('💡 .env.example 이 없습니다. env sync 와 audit --fix 는 이 파일을 만들지 않으니, 직접 만든 뒤(빈 파일도 됨) leerness env sync 를 실행하세요.',
 +        '💡 No .env.example yet. env sync and audit --fix do not create it; create it yourself (an empty file is fine), then run leerness env sync.'));
-@@ -28442 +28541 @@
+@@ -28442 +28556 @@
 -    log('# leerness env sync (1.9.71)');
 +    log('# leerness env sync');
-@@ -28450 +28549,6 @@
+@@ -28450 +28564,6 @@
 -    failJson(has('--json'), error.code || 'env_sync_failed', error.message, detail);
 +    const t = (ko, en) => (_uiLang(root) === 'en' ? en : ko);
 +    const message = error.code !== 'E_ENV_EXAMPLE_MISSING' ? error.message : exists(root)
@@ -2534,36 +2597,36 @@ index fb0c37b5..a858997d 100644
 +        '.env.example not found. env sync and init do not create it; create it yourself (an empty file is fine) with the variable names you want to share, then run env sync again.')
 +      : t(`프로젝트 경로가 없습니다: ${root}`, `Project directory not found: ${root}`);
 +    failJson(has('--json'), error.code || 'env_sync_failed', message, detail);
-@@ -28544 +28648 @@
+@@ -28544 +28663 @@
 -      encoding: process.env.LC_CTYPE || (process.platform === 'win32' ? 'cp949(default)' : 'UTF-8')
 +      encoding: process.env.LC_CTYPE || (process.platform === 'win32' ? 'unknown' : 'UTF-8')
-@@ -28547,2 +28651,2 @@
+@@ -28547,2 +28666,2 @@
 -      name: process.platform === 'win32' ? (process.env.ComSpec ? path.basename(process.env.ComSpec) : 'cmd.exe')
 -                                         : (process.env.SHELL ? path.basename(process.env.SHELL) : 'sh')
 +      name: process.env.SHELL ? path.basename(process.env.SHELL)
 +          : process.platform === 'win32' ? (process.env.POWERSHELL_DISTRIBUTION_CHANNEL ? 'pwsh' : 'unknown') : 'sh'
-@@ -28696 +28800 @@
+@@ -28696 +28815 @@
 -  log(`# leerness env detect (1.9.145)`);
 +  log(`# leerness env detect`);
-@@ -28709 +28813 @@
+@@ -28709 +28828 @@
 -    ok('첫 환경 캡처 — 다음 실행부터 변동을 자동 비교 (1.9.145)');
 +    ok('첫 환경 캡처 — 다음 실행부터 변동을 자동 비교');
-@@ -28783 +28887 @@
+@@ -28783 +28902 @@
 -  log(`# leerness permissions (1.9.146)`);
 +  log(`# leerness permissions`);
-@@ -28843 +28947 @@
+@@ -28843 +28962 @@
 -async function _ollamaChat(prompt, model) {
 +async function _ollamaGenerate(prompt, model) {
-@@ -28861 +28965 @@
+@@ -28861 +28980 @@
 -          try { const j = JSON.parse(data); resolve({ ok: res.statusCode === 200, response: j.response || '', model: mdl }); }
 +          try { const j = JSON.parse(data); resolve({ ok: res.statusCode === 200, response: j.response || '', ...(res.statusCode === 200 ? {} : { error: String(j.error || `HTTP ${res.statusCode}`) }), model: mdl }); }
-@@ -28879 +28983 @@
+@@ -28879 +28998 @@
 -      const req = lib.request({ hostname: u.hostname, port: u.port || 11434, path: u.pathname, method: 'GET', timeout: 4000 }, (res) => {
 +      const req = lib.request({ hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + (u.search || ''), method: 'GET', timeout: 4000 }, (res) => {
-@@ -28895,0 +29000,2 @@
+@@ -28895,0 +29015,2 @@
 +const _REPL_CHAT_PROVIDERS = ['ollama', 'claude', 'codex', 'agy', 'copilot'];
 +const _REPL_CLI_PROVIDERS = ['claude', 'codex', 'agy', 'copilot'];
-@@ -28946,5 +29052,7 @@
+@@ -28946,5 +29067,7 @@
 -    const id = `run-${ts}`;
 -    const fp = path.join(dir, `${id}.jsonl`);
 -    const line = JSON.stringify({ id, at: new Date().toISOString(), ...entry }) + '\n';
@@ -2576,102 +2639,102 @@ index fb0c37b5..a858997d 100644
 +      catch (error) { if (error.code !== 'EEXIST') throw error; }
 +    }
 +    return null;
-@@ -29018 +29126,2 @@
+@@ -29018 +29141,2 @@
 -  const first = String(cmdStr || '').trim().split(/\s+/)[0];
 +  const trimmed = String(cmdStr || '').trim();
 +  const first = trimmed === process.execPath ? 'node' : trimmed.split(/\s+/)[0];
-@@ -29101 +29210 @@
+@@ -29101 +29225 @@
 -  log('# leerness runs list (1.9.149)');
 +  log('# leerness runs list');
-@@ -29167 +29276 @@
+@@ -29167 +29291 @@
 -const { _PROVIDER_MODEL_CATALOG, _AGENT_ROLE_PROMPTS, ROLE_CATALOG, ROLE_REQUIREMENTS, _ROLE_ALIASES, pickCatalogModel } = require('../lib/role-catalog');
 +const { _PROVIDER_MODEL_CATALOG, _PROVIDER_CYCLE_ORDER, _AGENT_ROLE_PROMPTS, ROLE_CATALOG, ROLE_REQUIREMENTS, _ROLE_ALIASES, pickCatalogModel } = require('../lib/role-catalog');
-@@ -29250 +29359 @@
+@@ -29250 +29374 @@
 -function _guardRoleStore(json, action) {
 +function _guardRoleStore(json, action, root) {
-@@ -29254 +29363 @@
+@@ -29254 +29378 @@
 -      _emitRoleStoreFailure(json, error.roleStoreState, _uiLang(process.cwd()));
 +      _emitRoleStoreFailure(json, error.roleStoreState, _uiLang(root || process.cwd()));
-@@ -29383 +29492 @@
+@@ -29383 +29507 @@
 -    log(`# leerness roles catalog (1.9.270) — 알려진 역할 ${Object.keys(ROLE_CATALOG).length}종`);
 +    log(`# leerness roles catalog — 알려진 역할 ${Object.keys(ROLE_CATALOG).length}종`);
-@@ -29394 +29503 @@
+@@ -29394 +29518 @@
 -    const preflight = _guardRoleStore(json, () => _loadRolesForMutation(root));
 +    const preflight = _guardRoleStore(json, () => _loadRolesForMutation(root), root);
-@@ -29522 +29631 @@
+@@ -29522 +29646 @@
 -    const preflight = _guardRoleStore(json, () => has('--apply') ? _loadRolesForMutation(root) : _loadRoles(root));
 +    const preflight = _guardRoleStore(json, () => has('--apply') ? _loadRolesForMutation(root) : _loadRoles(root), root);
-@@ -29568 +29677 @@
+@@ -29568 +29692 @@
 -    log(`# leerness roles suggest (1.9.270) — 활성 에이전트 기반 최적 역할 배치`);
 +    log(`# leerness roles suggest — 활성 에이전트 기반 최적 역할 배치`);
-@@ -29581 +29690 @@
+@@ -29581 +29705 @@
 -    const loaded = _guardRoleStore(json, () => _loadRoleState(root));
 +    const loaded = _guardRoleStore(json, () => _loadRoleState(root), root);
-@@ -29646 +29755 @@
+@@ -29646 +29770 @@
 -    log(`# leerness roles verify (1.9.270/T-0172)`);
 +    log(`# leerness roles verify`);
-@@ -29661 +29770 @@
+@@ -29661 +29785 @@
 -  const loaded = _guardRoleStore(json, () => _loadRoleState(root));
 +  const loaded = _guardRoleStore(json, () => _loadRoleState(root), root);
-@@ -29670 +29779 @@
+@@ -29670 +29794 @@
 -  log(`# leerness roles (1.9.270) — 설정된 역할 ${entries.length}개`);
 +  log(`# leerness roles — 설정된 역할 ${entries.length}개`);
-@@ -29705 +29814 @@
+@@ -29705 +29829 @@
 -  log(cy(_t(`# leerness capabilities (1.9.272) — 권한·보안 표면 공개`, `# leerness capabilities — permission/security surface disclosure`)));
 +  log(cy(_t(`# leerness capabilities — 권한·보안 표면 공개`, `# leerness capabilities — permission/security surface disclosure`)));
-@@ -29771,0 +29881 @@
+@@ -29771,0 +29896 @@
 +  if (!['show', 'set', 'check'].includes(sub)) return failJson(json, 'unknown_subcommand', `알 수 없는 policy 하위명령: ${_lineSafe(sub).slice(0, 80)} — leerness policy show|set|check`);
-@@ -29803 +29913 @@
+@@ -29803 +29928 @@
 -  log(`# leerness policy (1.9.281, UR-0034) — 권한 등급`);
 +  log(`# leerness policy — 권한 등급`);
-@@ -30090,0 +30201 @@
+@@ -30090,0 +30216 @@
 +      if (!_requireInit(root, 'brief export')) return;
-@@ -30100,0 +30212 @@
+@@ -30100,0 +30227 @@
 +    if (!_requireInit(root, 'brief update')) return;
-@@ -30151 +30263 @@
+@@ -30151 +30278 @@
 -  log(cy(`# leerness context (1.9.292) — 에이전트 온보딩 컨텍스트 (v${VERSION})`));
 +  log(cy(`# leerness context — 에이전트 온보딩 컨텍스트 (v${VERSION})`));
-@@ -30176,0 +30289 @@
+@@ -30176,0 +30304 @@
 +  if (!['start', 'record', 'verify', 'handoff'].includes(sub)) return failJson(has('--json'), 'unknown_subcommand', `알 수 없는 state 하위명령: ${_lineSafe(sub).slice(0, 80)} — leerness state show|start|record|verify|handoff`);
-@@ -30361 +30474 @@
+@@ -30361 +30489 @@
 -  log(`# leerness state (1.9.278, UR-0032) — .leerness/ 구조화 상태`);
 +  log(`# leerness state — .leerness/ 구조화 상태`);
-@@ -30387,0 +30501,6 @@
+@@ -30387,0 +30516,6 @@
 +  const f = path.join(absRoot(root), ...String(rel || '.mcp.json').split('/'));
 +  let result;
 +  _withLock(f, () => { result = _mergeMcpJsonLocked(root, rel); });
 +  return result;
 +}
 +function _mergeMcpJsonLocked(root, rel) {
-@@ -30495,0 +30615 @@
+@@ -30495,0 +30630 @@
 +  if (!['build', 'show'].includes(sub)) return failJson(jsonMode, 'unknown_subcommand', `알 수 없는 glossary 하위명령: ${_lineSafe(sub).slice(0, 80)} — leerness glossary [build|show]`);
-@@ -30548 +30668 @@
+@@ -30548 +30683 @@
 -    log(`# leerness adapter (1.9.280, UR-0033) — 도구별 선택 설치`);
 +    log(`# leerness adapter — 도구별 선택 설치`);
-@@ -30568,0 +30689 @@
+@@ -30568,0 +30704 @@
 +    _withLock(gf, () => {
-@@ -30571,0 +30693 @@
+@@ -30571,0 +30708 @@
 +      if (dry) { log(s >= 0 && e >= s ? '[dry-run] codex 전역 leerness 블록 제거 예정 (실제 변경 0)' : '전역 블록 없음 — 변경 없음'); return; }
-@@ -30588,0 +30711 @@
+@@ -30588,0 +30726 @@
 +    if (dry) { log(`[dry-run] codex 전역 지침 설치 예정 — ${gf} (실제 변경 0)`); return; }
-@@ -30593,0 +30717 @@
+@@ -30593,0 +30732 @@
 +    });
-@@ -30719 +30843 @@
+@@ -30719 +30858 @@
 -  log(cy(`# leerness reuse-check (1.9.285, UR-0023) — 빌드 vs 재사용 결정 게이트`));
 +  log(cy(`# leerness reuse-check — 빌드 vs 재사용 결정 게이트`));
-@@ -30754 +30878 @@
+@@ -30754 +30893 @@
 -  for (const s of skills) { const re = new RegExp(String(s.id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'); uses[s.id] = (hist.match(re) || []).length; }
 +  for (const s of skills) { const re = new RegExp('(?<![\\w-])' + String(s.id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w-])', 'g'); uses[s.id] = (hist.match(re) || []).length; }
-@@ -30764 +30888 @@
+@@ -30764 +30903 @@
 -  log(cy(`# leerness skill impact (1.9.286, UR-0024) — 스킬 영향 경량 상관추적`));
 +  log(cy(`# leerness skill impact — 스킬 영향 경량 상관추적`));
-@@ -30804 +30928 @@
+@@ -30804 +30943 @@
 -                                  .filter(x => x.status.status === 'ready');
 +                                  .filter(x => x.status.status === 'ready' && _REPL_CHAT_PROVIDERS.includes(x.def.id));
-@@ -30864 +30988 @@
+@@ -30864 +31003 @@
 -      const readyCli = EXTERNAL_AGENTS.filter(a => a.id !== 'ollama')
 +      const readyCli = EXTERNAL_AGENTS.filter(a => _REPL_CLI_PROVIDERS.includes(a.id))
-@@ -30880,4 +31004,4 @@
+@@ -30880,4 +31019,4 @@
 -  log(C.yel('  │  ') + C.dim('Tab / Shift+Tab') + '   ' + C.dim('— provider / model 전환 (1.9.170)') + C.yel(' '.repeat(Math.max(1, 17)) + '│'));
 -  log(C.yel('  │  ') + C.dim(':review "<req>"') + '   ' + C.dim('— 무조건 구현 전 사전 검토 (1.9.176)') + C.yel(' '.repeat(Math.max(1, 13)) + '│'));
 -  log(C.yel('  │  ') + C.dim(':permissions <m>') + '  ' + C.dim('— 즉시 권한 변경 basic|extended|full (1.9.174)') + C.yel(' │'));
@@ -2680,72 +2743,72 @@ index fb0c37b5..a858997d 100644
 +  log(C.yel('  │  ') + C.dim(':review "<req>"') + '   ' + C.dim('— 무조건 구현 전 사전 검토') + C.yel(' '.repeat(Math.max(1, 13)) + '│'));
 +  log(C.yel('  │  ') + C.dim(':permissions <m>') + '  ' + C.dim('— 즉시 권한 변경 basic|extended|full') + C.yel(' │'));
 +  log(C.yel('  │  ') + C.dim(':stream on|off') + '    ' + C.dim('— 실시간 스트리밍 토글 (default ON)') + C.yel(' │'));
-@@ -30886 +31010 @@
+@@ -30886 +31025 @@
 -  log(C.bold(C.green('  ┌─ What\'s new (1.9.170~178) ─────────────────────────────────────────┐')));
 +  log(C.bold(C.green('  ┌─ What\'s new ─────────────────────────────────────────┐')));
-@@ -31039 +31163 @@
+@@ -31039 +31178 @@
 -        return [..._PROVIDER_CYCLE_ORDER, ...userIds];
 +        return [..._PROVIDER_CYCLE_ORDER.filter(id => _REPL_CHAT_PROVIDERS.includes(id)), ...userIds];
-@@ -31189 +31313 @@
+@@ -31189 +31328 @@
 -      log('    :model <name>         — 모델 변경 (1.9.155 모든 provider 지원, 예: :model claude-opus-4-7)');
 +      log('    :model <name>         — 모델 변경 (모든 provider 지원, 예: :model claude-opus-4-7)');
-@@ -31193,2 +31317,2 @@
+@@ -31193,2 +31332,2 @@
 -      log('    :stream on|off        — 🆕 1.9.170 실시간 스트리밍 토글 (추론중/diff/thinking 실시간 표시)');
 -      log('    :status               — 현재 세션 상태 자세히 (1.9.155)');
 +      log('    :stream on|off        — 실시간 스트리밍 토글 (추론중/diff/thinking 실시간 표시)');
 +      log('    :status               — 현재 세션 상태 자세히');
-@@ -31199 +31323 @@
+@@ -31199 +31338 @@
 -      log('    :permissions [mode]   — 🆕 1.9.174 현재 모드 표시 / 또는 즉시 변경 (basic/extended/full)');
 +      log('    :permissions [mode]   — 현재 모드 표시 / 또는 즉시 변경 (basic/extended/full)');
-@@ -31202 +31326 @@
+@@ -31202 +31341 @@
 -      log(C.bold('\n  🆕 1.9.170 키보드 단축키:'));
 +      log(C.bold('\n  키보드 단축키:'));
-@@ -31205 +31329 @@
+@@ -31205 +31344 @@
 -      log(C.bold('\n  Slash 명령 (1.9.150) — leerness 내부 명령 직접 호출:'));
 +      log(C.bold('\n  Slash 명령 — leerness 내부 명령 직접 호출:'));
-@@ -31210 +31334 @@
+@@ -31210 +31349 @@
 -      log(C.bold('\n  Memory Slash (1.9.161) — Memory Surface 즉시 조회:'));
 +      log(C.bold('\n  Memory Slash — Memory Surface 즉시 조회:'));
-@@ -31215 +31339 @@
+@@ -31215 +31354 @@
 -      log(C.bold('\n  🆕 Review Slash (1.9.176) — 사용자 요청 사전 검토:'));
 +      log(C.bold('\n  🆕 Review Slash — 사용자 요청 사전 검토:'));
-@@ -31217 +31341 @@
+@@ -31217 +31356 @@
 -      log(C.bold('\n  🆕 Bridge Slash (1.9.175) — REPL 안에서 즉시 Bridge 호출:'));
 +      log(C.bold('\n  🆕 Bridge Slash — REPL 안에서 즉시 Bridge 호출:'));
-@@ -31318 +31442 @@
+@@ -31318 +31457 @@
 -        log(C.green('  ↪ auto-fallback: ON (1.9.247) — 현재 provider transient 실패 (timeout/exit=null) 시 다음 ready agent 자동 전환 + 재시도'));
 +        log(C.green('  ↪ auto-fallback: ON — 현재 provider transient 실패 (timeout/exit=null) 시 다음 ready agent 자동 전환 + 재시도'));
-@@ -31373 +31497 @@
+@@ -31373 +31512 @@
 -      log(C.bold('\n  📊 REPL 세션 상태 (1.9.155)'));
 +      log(C.bold('\n  📊 REPL 세션 상태'));
-@@ -31404 +31528 @@
+@@ -31404 +31543 @@
 -          log(C.dim(`     :permissions full  로 즉시 변경 가능 (1.9.174)`));
 +          log(C.dim(`     :permissions full  로 즉시 변경 가능`));
-@@ -31503 +31627 @@
+@@ -31503 +31642 @@
 -      state.history.push({ role: 'user', content: input });
 +      state.history.push({ role: 'user', content: input, at: new Date().toISOString() });
-@@ -31512 +31636 @@
+@@ -31512 +31651 @@
 -        result = await _ollamaChat(finalPrompt, state.model);
 +        result = await _ollamaGenerate(finalPrompt, state.model);
-@@ -31528 +31652 @@
+@@ -31528 +31667 @@
 -        state.history.push({ role: 'assistant', content: result.response });
 +        state.history.push({ role: 'assistant', content: result.response, at: new Date().toISOString() });
-@@ -31560 +31684 @@
+@@ -31560 +31699 @@
 -            const others = EXTERNAL_AGENTS.filter(a => a.id !== state.provider)
 +            const others = EXTERNAL_AGENTS.filter(a => a.id !== state.provider && _REPL_CLI_PROVIDERS.includes(a.id))
-@@ -31565 +31689 @@
+@@ -31565 +31704 @@
 -              log(C.green(`  ↪ auto-fallback (1.9.247): ${state.provider} 실패 → ${next} 자동 전환 + 재시도 중...`));
 +              log(C.green(`  ↪ auto-fallback: ${state.provider} 실패 → ${next} 자동 전환 + 재시도 중...`));
-@@ -31578 +31702 @@
+@@ -31578 +31717 @@
 -                state.history.push({ role: 'assistant', content: retry.response });
 +                state.history.push({ role: 'assistant', content: retry.response, at: new Date().toISOString() });
-@@ -31597 +31721 @@
+@@ -31597 +31736 @@
 -          const others = EXTERNAL_AGENTS.filter(a => a.id !== state.provider)
 +          const others = EXTERNAL_AGENTS.filter(a => a.id !== state.provider && _REPL_CHAT_PROVIDERS.includes(a.id))
-@@ -31602 +31726 @@
+@@ -31602 +31741 @@
 -            if (!state.autoFallback) log(C.dim(`     💡 다음 실패 시 자동 전환: \`:fallback on\` (1.9.247 UR-0016 2단계)`));
 +            if (!state.autoFallback) log(C.dim(`     💡 다음 실패 시 자동 전환: \`:fallback on\``));
-@@ -31623 +31747,8 @@
+@@ -31623 +31762,8 @@
 -   
 +  const roleArg = arg('--role', 'actor');
 +  if (!Object.prototype.hasOwnProperty.call(_AGENT_ROLE_PROMPTS, roleArg)) {
@@ -2755,95 +2818,95 @@ index fb0c37b5..a858997d 100644
 +    return;
 +  }
 +
-@@ -31641,2 +31772,2 @@
+@@ -31641,2 +31787,2 @@
 -    log('  leerness agent "<task>" --role planner      # 계획만 (1.9.148)');
 -    log('  leerness agent "<task>" --role reviewer     # 비판적 검토 (1.9.148)');
 +    log('  leerness agent "<task>" --role planner      # 계획만');
 +    log('  leerness agent "<task>" --role reviewer     # 비판적 검토');
-@@ -31647,2 +31778,2 @@
+@@ -31647,2 +31793,2 @@
 -    log('REPL Slash 명령 (1.9.150): :verify / :audit / :handoff / :health  (sandboxed runCommandSafe)');
 -    log('REPL Multi-provider (1.9.153): ollama / claude / codex / agy / copilot — 활성 CLI 자동 감지');
 +    log('REPL Slash 명령: :verify / :audit / :handoff / :health  (sandboxed runCommandSafe)');
 +    log('REPL Multi-provider: ollama / claude / codex / agy / copilot — 활성 CLI 자동 감지');
-@@ -31660 +31791 @@
+@@ -31660 +31806 @@
 -  log(`# leerness agent (1.9.146/148)`);
 +  log(`# leerness agent`);
-@@ -31683 +31814 @@
+@@ -31683 +31829 @@
 -    r = await _ollamaChat(finalPrompt);
 +    r = await _ollamaGenerate(finalPrompt);
-@@ -31767 +31898 @@
+@@ -31767 +31913 @@
 -  log(`# leerness creds list (1.9.147)`);
 +  log(`# leerness creds list`);
-@@ -31773,0 +31905 @@
+@@ -31773,0 +31920 @@
 +    if (!meta || typeof meta !== 'object' || !Array.isArray(meta.envVars)) { warn(`  ${_lineSafe(name)}: 레코드 형상 무효 (envVars 없음) — credentials.local.json 확인`); continue; }
-@@ -31784,0 +31917 @@
+@@ -31784,0 +31932 @@
 +  if (service in Object.prototype) return fail(`쓸 수 없는 service 이름: ${JSON.stringify(_lineSafe(service))} (객체 내장 이름)`);
-@@ -31789 +31922,3 @@
+@@ -31789 +31937,3 @@
 -  const lifetime = parseInt(arg('--token-lifetime-hours', '0'), 10) || null;
 +  const lifetimeArg = arg('--token-lifetime-hours', null);
 +  if (lifetimeArg != null && !/^[1-9][0-9]*$/.test(String(lifetimeArg))) return fail(`--token-lifetime-hours 는 1 이상의 정수여야 합니다 (받음: ${JSON.stringify(_lineSafe(String(lifetimeArg)))})`);
 +  const lifetime = lifetimeArg != null ? parseInt(lifetimeArg, 10) : null;
-@@ -31829 +31964 @@
+@@ -31829 +31979 @@
 -  log(`# leerness creds check (1.9.147)`);
 +  log(`# leerness creds check`);
-@@ -31875 +32010 @@
+@@ -31875 +32025 @@
 -  log('# leerness incident list (1.9.147)');
 +  log('# leerness incident list');
-@@ -31906 +32041 @@
+@@ -31906 +32056 @@
 -  log(`# leerness incident handle (1.9.147)`);
 +  log(`# leerness incident handle`);
-@@ -31968 +32103 @@
+@@ -31968 +32118 @@
 -  log(`# leerness webhook serve (1.9.147)`);
 +  log(`# leerness webhook serve`);
-@@ -31986,3 +32121,3 @@
+@@ -31986,3 +32136,3 @@
 -            const sig = req.headers['x-leerness-signature'] || '';
 -            const expected = _hmacSha256(secret, body);
 -            if (sig !== expected) {
 +            const sig = Buffer.from(String(req.headers['x-leerness-signature'] || ''));
 +            const expected = Buffer.from(_hmacSha256(secret, body));
 +            if (sig.length !== expected.length || !require('crypto').timingSafeEqual(sig, expected)) {
-@@ -32009,2 +32144,3 @@
+@@ -32009,2 +32159,3 @@
 -  server.listen(port, () => {
 -    ok(`listening on port ${port}`);
 +  server.listen(port, arg('--host', '127.0.0.1'), () => {
 +    const bound = server.address();
 +    ok(`listening on ${bound.address}:${bound.port}`);
-@@ -32023 +32159 @@
+@@ -32023 +32174 @@
 -    log('# leerness deploy auto (1.9.147)');
 +    log('# leerness deploy auto');
-@@ -32050 +32186 @@
+@@ -32050 +32201 @@
 -  log(`# leerness deploy auto (1.9.147)`);
 +  log(`# leerness deploy auto`);
-@@ -32059,4 +32194,0 @@
+@@ -32059,4 +32209,0 @@
 -     
 -    j.services[service].lastRefreshed = new Date().toISOString();
 -    _writeCredentials(root, j);
 -     
-@@ -32079 +32211 @@
+@@ -32079 +32226 @@
 -  log(`# leerness usage stats (1.9.38)`);
 +  log(`# leerness usage stats`);
-@@ -32107 +32239 @@
+@@ -32107 +32254 @@
 -      log(`💡 drift 경고 ${stats.drift.skipped}회 스킵 → 1.9.38 학습: 임계 자동 완화 (--no-drift-check 빈도 ≥5)`);
 +      log(`💡 drift 경고 ${stats.drift.skipped}회 스킵 → 학습: 임계 자동 완화 (--no-drift-check 빈도 ≥5)`);
-@@ -32115 +32247 @@
+@@ -32115 +32262 @@
 -    log(`## 🔌 MCP tools/call 통계 (1.9.70) — last: ${stats.mcp.lastAt || '(none)'}`);
 +    log(`## 🔌 MCP tools/call 통계 — last: ${stats.mcp.lastAt || '(none)'}`);
-@@ -32192 +32324 @@
+@@ -32192 +32339 @@
 -      log(`# leerness task export (1.9.60)`);
 +      log(`# leerness task export`);
-@@ -32199 +32331 @@
+@@ -32199 +32346 @@
 -    log(`# leerness task export (1.9.60)`);
 +    log(`# leerness task export`);
-@@ -32393 +32525,2 @@
+@@ -32393 +32540,2 @@
 -  log(`# leerness task sync (1.9.38)`);
 +  if (has('--json')) { log(JSON.stringify({ ok: !conflicts.length && !ambiguous.length, imported, updated, total: todos.length, conflicts, ambiguous }, null, 2)); return; }
 +  log(`# leerness task sync`);
-@@ -32396 +32528,0 @@
+@@ -32396 +32543,0 @@
 -  if (has('--json')) log(JSON.stringify({ ok: !conflicts.length && !ambiguous.length, imported, updated, total: todos.length, conflicts, ambiguous }, null, 2));
-@@ -32459 +32591 @@
+@@ -32459 +32606 @@
 -  log(`# leerness contract verify (1.9.35)`);
 +  log(`# leerness contract verify`);
-@@ -32519,7 +32651,14 @@
+@@ -32519,7 +32666,14 @@
 -    let body = read(reusePath);
 -    for (const c of found) {
 -      if (body.includes(`| ${c.name} |`)) continue;  
@@ -2865,61 +2928,61 @@ index fb0c37b5..a858997d 100644
 +        storage.publishTextEdit(input, reusePath, headerIdx >= 0 ? lines.join('\n') : input.text + (input.text.endsWith('\n') ? '' : '\n') + rows.join('\n') + '\n');
 +      }
 +    });
-@@ -32532 +32671 @@
+@@ -32532 +32686 @@
 -  log(`# leerness reuse autodetect (1.9.35)`);
 +  log(`# leerness reuse autodetect`);
-@@ -32573 +32712 @@
+@@ -32573 +32727 @@
 -    log(`# leerness web check (1.9.165)`);
 +    log(`# leerness web check`);
-@@ -32597 +32736 @@
+@@ -32597 +32751 @@
 -    log(`# leerness web screenshot (1.9.165)`);
 +    log(`# leerness web screenshot`);
-@@ -32645 +32784 @@
+@@ -32645 +32799 @@
 -          log(`# leerness web extract (1.9.165)`);
 +          log(`# leerness web extract`);
-@@ -32701 +32840 @@
+@@ -32701 +32855 @@
 -    log(`# leerness pc check (1.9.166)`);
 +    log(`# leerness pc check`);
-@@ -32709 +32848 @@
+@@ -32709 +32863 @@
 -    log(`## 권한 (1.9.146)`);
 +    log(`## 권한`);
-@@ -32742 +32881,5 @@
+@@ -32742 +32896,5 @@
 -        })();
 +        })().catch((e) => {
 +          fail(`click 실패: ${e.message}`);
 +          try { _recordRun(root, { kind: 'pc_click', x, y, lib: r.name, durationMs: Date.now() - t0, ok: false, error: e.message }); } catch {}
 +          process.exitCode = 1;
 +        });
-@@ -32773 +32916,5 @@
+@@ -32773 +32931,5 @@
 -        })();
 +        })().catch((e) => {
 +          fail(`type 실패: ${e.message}`);
 +          try { _recordRun(root, { kind: 'pc_type', chars: text.length, lib: r.name, durationMs: Date.now() - t0, ok: false, error: e.message }); } catch {}
 +          process.exitCode = 1;
 +        });
-@@ -32806 +32953 @@
+@@ -32806 +32968 @@
 -          const img = await screen.capture(outPath);
 +          await screen.capture(outPath);
-@@ -32810 +32957,5 @@
+@@ -32810 +32972,5 @@
 -        })();
 +        })().catch((e) => {
 +          fail(`screenshot 실패: ${e.message}`);
 +          try { _recordRun(root, { kind: 'pc_screenshot', outPath, lib: r.name, durationMs: Date.now() - t0, ok: false, error: e.message }); } catch {}
 +          process.exitCode = 1;
 +        });
-@@ -32898 +33049 @@
+@@ -32898 +33064 @@
 -    log(`# leerness lsp check (1.9.167)`);
 +    log(`# leerness lsp check`);
-@@ -32933 +33084 @@
+@@ -32933 +33099 @@
 -      log(`# leerness lsp symbols (1.9.173 다국어)`);
 +      log(`# leerness lsp symbols (다국어)`);
-@@ -32972 +33123 @@
+@@ -32972 +33138 @@
 -      log(`# leerness lsp references (1.9.167)`);
 +      log(`# leerness lsp references`);
-@@ -33153 +33304 @@
+@@ -33153 +33319 @@
 -  leerness loop open|round|decide|status [--json]  # 같은 주제의 반복 검수·수리 회차 기록 (기본 한도 3회) — STOP 은 exit 3
 +  leerness loop open|round|decide|status [--json]  # 같은 주제의 반복 검수·수리 회차 기록 (기본 한도 10회) — STOP 은 exit 3
-@@ -33218,6 +33369,4 @@
+@@ -33218,6 +33384,4 @@
 -    try {
 -      const report = assessRuleArguments(assessmentArgv.slice(2));
 -      return log(jsonMode ? JSON.stringify(report, null, 2) : formatRuleAssessment(report));
@@ -2930,13 +2993,16 @@ index fb0c37b5..a858997d 100644
 +    try { report = assessRuleArguments(assessmentArgv.slice(2)); }
 +    catch { return failJson(jsonMode, 'rule_assessment_invalid', 'Invalid rule assessment input.'); }
 +    return log(jsonMode ? JSON.stringify(report, null, 2) : formatRuleAssessment(report));
-@@ -33413 +33562 @@
+@@ -33413 +33577 @@
 -  if (!_staleSkip.has(cmd) && !has('--json') && process.env.LEERNESS_NO_STALE_CHECK !== '1' && !has('--no-stale-check')) {
 +  if (!_staleSkip.has(cmd) && !(cmd === 'session' && args[1] === 'close') && !has('--json') && process.env.LEERNESS_NO_STALE_CHECK !== '1' && !has('--no-stale-check')) {
-@@ -33417 +33566 @@
+@@ -33417 +33581 @@
 -        : absRoot(arg('--path', args[1] && !args[1].startsWith('-') ? args[1] : process.cwd()));
 +        : (runtimeRoot || absRoot(arg('--path', args[1] && !args[1].startsWith('-') ? args[1] : process.cwd())));
-@@ -34614 +34763 @@
+@@ -34557 +34721 @@
+-  _selfTestCases, selfTestCmd,
++  _selfTestCases, selfTestCmd, _p0101PathStrictOk,
+@@ -34614 +34778 @@
 -  _detectOptimism, _scanCodeForPatterns,
 +  _detectOptimism, _scanCodeForPatterns, _portableDispatchTaskSafe,
 diff --git a/lib/agent-registry.js b/lib/agent-registry.js
@@ -5030,6 +5096,47 @@ index e7ecb3d9..a27ab150 100644
 +    }
 +  }
 +}
+diff --git a/scripts/doctor-selftest-probe.js b/scripts/doctor-selftest-probe.js
+index 651f71ba..64c67528 100644
+--- a/scripts/doctor-selftest-probe.js
++++ b/scripts/doctor-selftest-probe.js
+@@ -246,0 +247,36 @@
++
++test('strict path selftest checks every command in both forms and rejects unrelated child failures', () => {
++  const { _p0101PathStrictOk } = require('../bin/leerness.js');
++  const calls = [];
++  function answer(_node, [, command, ...args]) {
++    const target = args.find(a => path.isAbsolute(a));
++    const result = data => ({ status: 1, stdout: JSON.stringify(data) });
++    if (command === 'init') return { status: 0 };
++    if (command === 'health' && path.basename(target) === 'valid-project') {
++      return { status: 0, stdout: JSON.stringify({ root: target, checks: { drift: { score: 0 } } }) };
++    }
++    const explicit = args.includes('--path');
++    calls.push([command, ...args.filter(a=>!a.startsWith('--') && a !== target)].join(' ') + (explicit ? ':option' : ':positional'));
++    if (command === 'audit' && !explicit) return result({root:target, healthy:false, failures:1,
++      findings:[{kind:'not_initialized',severity:'fail',root:target}]});
++    if (command === 'gate' && !explicit) return result({ok:false, code:'error', error:target+' (.leerness/AGENTS.md)'});
++    return result({ok:false, code:'path_not_found', error:target});
++  }
++  assert.equal(_p0101PathStrictOk(answer), true);
++  assert.equal(new Set(calls).size, 50);
++  for (const bad of [
++    {status:null, error:Object.assign(new Error('timeout'),{code:'ETIMEDOUT'})},
++    {status:null,signal:'SIGTERM'}, {status:1,stdout:'not JSON'},
++    {status:1,stdout:'{"ok":false,"code":"unrelated"}'}, {status:0,stdout:'{}'},
++  ]) {
++    assert.equal(_p0101PathStrictOk((node,args)=>args[1]==='drift' ? bad : answer(node,args)), false);
++  }
++  assert.equal(_p0101PathStrictOk((node,args)=>{
++    const r=answer(node,args);
++    if (args[1]==='pulse') fs.mkdirSync(args.findLast(a=>path.isAbsolute(a)));
++    return r;
++  }),false);
++  assert.equal(_p0101PathStrictOk((node,args)=>args[1]==='init' ? {status:1} : answer(node,args)), false);
++  assert.equal(_p0101PathStrictOk((node,args)=>args[1]==='health' && !args.includes('--path') && args.some(a=>path.basename(a)==='valid-project')
++    ? {status:0,stdout:'{}'} : answer(node,args)), false);
++});
 diff --git a/scripts/e2e-command-surface.js b/scripts/e2e-command-surface.js
 index 2f3db9e1..b6547e06 100644
 --- a/scripts/e2e-command-surface.js
