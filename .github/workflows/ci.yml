@@ -67,6 +67,8 @@ jobs:
       - name: Interactive model selection
         if: github.ref_name == 'snapshots/model-selection'
         run: node scripts/runtime-repl-probe.js
+      - name: Migration backup and restore
+        run: node scripts/install-text-probe.js --match "compact migration"
       - name: lint
         run: node ./scripts/lint.js
       - name: selftest
