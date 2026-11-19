@@ -110,10 +110,36 @@ test('10 an open request with no 2-character words is reported as missing, not t
   assert.ok(j.missing.length === 1 && j.tracked.length === 0, show(r));
 });
 
-test('21 command listing says task update --note replaces the Request text', () => {
+test('21 task update lists request editing and memo flags and preserves the legacy note alias', () => {
   const P = project();
-  const r = run(P, ['commands', '--json']);
-  assert.ok(/--note[^"]*replaces the Request/.test(r.stdout), show(r));
+  const json = args => {
+    const result = run(P, [...args, '--json']);
+    assert.strictEqual(result.status, 0, show(result));
+    return JSON.parse(result.stdout);
+  };
+  const entries = json(['commands']).categories.task.filter(entry => /^task update(?:\s|$)/.test(entry.cmd));
+  assert.strictEqual(entries.length, 1);
+  const update = entries[0];
+  const commandFlags = update.cmd.match(/--[a-z][a-z-]*/g) || [];
+  for (const flag of ['--request', '--memo']) assert.ok(commandFlags.includes(flag), update.cmd);
+  assert.match(update.cmd + ' ' + update.desc, /--note(?![\w-])/);
+
+  const id = json(['task', 'add', 'Original fixture request']).id;
+  const edit = (flag, value) => json(['task', 'update', id, flag, value]);
+  const request = () => require('../lib/progress-rows').parseProgressRows(fs.readFileSync(ws(P, 'progress-tracker.md'), 'utf8'))
+    .find(task => task.id === id).request;
+  assert.strictEqual(edit('--request', 'Edited fixture request').request, 'Edited fixture request');
+  assert.strictEqual(request(), 'Edited fixture request');
+  const log = () => fs.readFileSync(ws(P, 'task-log.md'), 'utf8');
+  const before = log();
+  assert.strictEqual(edit('--memo', 'Fixture memo entry').memoAppended, true);
+  assert.strictEqual(request(), 'Edited fixture request');
+  const after = log();
+  assert.ok(after.startsWith(before), 'existing task history was overwritten');
+  const appended = after.slice(before.length);
+  assert.ok(appended.includes(id) && appended.includes('Fixture memo entry'), appended);
+  assert.strictEqual(edit('--note', 'Legacy fixture request').request, 'Legacy fixture request');
+  assert.strictEqual(request(), 'Legacy fixture request');
 });
 
 test('24 idempotency audit, auto-fix and task add agree on which statuses are inactive', () => {

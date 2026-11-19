@@ -8429,10 +8429,32 @@ index c896169d..c756cc46 100644
 -  }
 +  require('./temp-cleanup').runIsolatedWorker(__filename, 'leerness-context-reading-', 'CONTEXT_READING_ROOT', 3600000);
 diff --git a/scripts/derived-input-publication-probe.js b/scripts/derived-input-publication-probe.js
-index e7ecb3d9..a27ab150 100644
+index e7ecb3d9..cc08a1d8 100644
 --- a/scripts/derived-input-publication-probe.js
 +++ b/scripts/derived-input-publication-probe.js
-@@ -32 +32,11 @@
+@@ -18 +18,20 @@
+-test('prefix assertion detects change beyond observed prefix',()=>{const f=fixture();f.put('agent-reminders.md','a'.repeat(70000));assert.equal(typeof mi.captureCheckedFilePrefix,'function');const file=f.file('agent-reminders.md'),input=mi.captureCheckedFilePrefix(file),fd=fs.openSync(file,'r+');try{fs.writeSync(fd,Buffer.from('b'),0,1,69999);}finally{fs.closeSync(fd);}assert.throws(()=>mi.assertCheckedFileCurrent(input,file),{code:'E_STORE_CHANGED'});});
++test('prefix assertion detects a suffix write when file metadata changes', () => {
++  const f = fixture();
++  f.put('agent-reminders.md', 'a'.repeat(70000));
++  const file = f.file('agent-reminders.md');
++  // A normal write can share the creation timestamp on coarse-resolution filesystems.
++  const oldTime = new Date('2000-01-01T00:00:00Z');
++  fs.utimesSync(file, oldTime, oldTime);
++  const input = mi.captureCheckedFilePrefix(file);
++  const before = fs.statSync(file, { bigint: true });
++  const fd = fs.openSync(file, 'r+');
++  try {
++    assert.equal(fs.writeSync(fd, Buffer.from('b'), 0, 1, 69999), 1);
++  } finally {
++    fs.closeSync(fd);
++  }
++  const after = fs.statSync(file, { bigint: true });
++  assert.equal(after.size, before.size);
++  assert.notEqual(after.mtimeNs, before.mtimeNs);
++  assert.throws(() => mi.assertCheckedFileCurrent(input, file), { code: 'E_STORE_CHANGED' });
++});
+@@ -32 +51,11 @@
 -test('graph normal HTML and injection neutralization remain valid',()=>{const f=fixture(),out=path.join(f.root,'leerness.html');f.put('decisions.json',JSON.stringify([{id:'D-0001',decision:'Owner </script> source'}]));const r=graph.graphHtmlCmd(f.root,deps(),out),text=fs.readFileSync(out,'utf8');assert(r.ok);assert(text.includes('T-0001'));assert.equal((text.match(/<\/script>/g)||[]).length,1);const data=JSON.parse(text.match(/var DATA = (\{[^]*?\});/)[1]);assert.equal(data.nodes.find(n=>n.id==='D-0001').label,'Owner </script> source');});
 +test('graph normal HTML and injection neutralization remain valid', () => {
 +  const f = fixture(), out = path.join(f.root, 'leerness.html');
@@ -8445,7 +8467,7 @@ index e7ecb3d9..a27ab150 100644
 +  assert.ok(data.roadmap.tasks.some(t => t.id === 'T-0001'));
 +  assert.equal(data.docs.files.find(f => f.key === 'decisions').text, decision);
 +});
-@@ -37 +47,13 @@
+@@ -37 +66,13 @@
 -function sessionWrite(fn){const old={};for(const key of ['LEERNESS_INTERNAL','LEERNESS_SESSION_ID','LEERNESS_NO_LOCK_WARN'])old[key]=process.env[key];delete process.env.LEERNESS_INTERNAL;process.env.LEERNESS_SESSION_ID='session-0001';process.env.LEERNESS_NO_LOCK_WARN='1';try{return fn();}finally{for(const[key,value]of Object.entries(old))if(value===undefined)delete process.env[key];else process.env[key]=value;}}
 +function sessionWrite(fn) {
 +  const keys = ['LEERNESS_INTERNAL', 'LEERNESS_SESSION_ID', 'LEERNESS_NO_LOCK_WARN', 'CI', 'GITHUB_ACTIONS'];
