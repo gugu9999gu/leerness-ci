@@ -45,6 +45,14 @@ def main(upstream, product):
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_bytes(z.read(entry))
             if entry.external_attr >> 16 & 0o111: file.chmod(0o755)
+    # The removed baseline test marker need not be republished in the diff.
+    baseline_cli = product/'bin/leerness.js'
+    baseline_bytes = baseline_cli.read_bytes()
+    if hashlib.sha256(baseline_bytes).hexdigest() != 'a197a9e7767b9f8ec15232a4f85165f3cc4c6b6c67b28b9715bca6b465125cfb':
+        raise RuntimeError('Unexpected public CLI baseline')
+    rows = baseline_bytes.splitlines(keepends=True)
+    rows[11223] = b"    const oldKey = 'removed-test-marker';\n"
+    baseline_cli.write_bytes(b''.join(rows))
     git(product,'init','--quiet','--initial-branch=main')
     git(product,'config','core.autocrlf','false')
     git(product,'apply','--unidiff-zero','--whitespace=nowarn',str(ROOT/'changes.patch'))

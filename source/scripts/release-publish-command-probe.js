@@ -213,6 +213,18 @@ test('76 verify-code treats a missing optional pytest as skipped on Windows too'
   assert.strictEqual(r.status, 0, show(r));
 });
 
+test('verify-code records exit 127 from an installed optional executable as failure', () => {
+  const dir = project(), shim = path.join(dir, 'bin');
+  fs.mkdirSync(shim);
+  fs.writeFileSync(path.join(shim, process.platform === 'win32' ? 'pytest.cmd' : 'pytest'),
+    process.platform === 'win32' ? '@exit /b 127\r\n' : '#!/bin/sh\nexit 127\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, 'pyproject.toml'), '[project]\nname = "fixture"\n');
+  const search = shim + path.delimiter + process.env.PATH;
+  const result = run(dir, ['verify-code'], { PATH: search, Path: search });
+  assert.equal(result.status, 1, show(result));
+  assert.match(read(ws(dir, 'review-evidence.md')), /test:python: exit=127/);
+});
+
 test('77 guide --json survives --strict-exit and keeps the process argv untouched', () => {
   const dir = project();
   fs.writeFileSync(ws(dir, 'design-system.md'), '# Design System\n\n| Token | Value |\n|---|---|\n| color-bg | #ffffff |\n');
