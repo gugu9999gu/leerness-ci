@@ -8553,7 +8553,7 @@ index 2f3db9e1..b6547e06 100644
 -    await waitForOutput(webhook, /listening on port/);
 +    await waitForOutput(webhook, new RegExp(`listening on 127\\.0\\.0\\.1:${port}\\b`));
 diff --git a/scripts/e2e.js b/scripts/e2e.js
-index 99ed0e10..5ebe7412 100644
+index 99ed0e10..8ca9c528 100644
 --- a/scripts/e2e.js
 +++ b/scripts/e2e.js
 @@ -519 +519 @@
@@ -8802,6 +8802,9 @@ index 99ed0e10..5ebe7412 100644
 -      dbg.gitwt = { dirty: r.ok ? r.files.size : r.reason, clean: r2.ok ? r2.files.size : r2.reason, nonRepo: r3.reason, noGit: r4.reason, unionHasCommitted: !!(chSet && chSet.has('committed-claim.js')) };
 +      dbg.gitwt = { dirty: r.ok ? r.files.size : r.reason, clean: r2.ok ? r2.files.size : r2.reason, nonRepo: r3.reason, noGit: r4.reason };
 +
+@@ -14311 +14321 @@
+-        { PATH: emptyDir + path.delimiter + path.dirname(process.execPath) });
++        { PATH: emptyDir });
 diff --git a/scripts/env-snapshot-text-probe.js b/scripts/env-snapshot-text-probe.js
 index f94bdcda..d2b8b523 100644
 --- a/scripts/env-snapshot-text-probe.js
