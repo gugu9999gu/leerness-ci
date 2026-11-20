@@ -20,6 +20,8 @@ def source_digest(product):
     total = hashlib.sha256()
     count = 0
     files = [product/'package.json']
+    for prefix in ('skills', '.agents/skills', '.claude/skills'):
+        files.append(product/prefix/'leerness/SKILL.md')
     for folder in ('bin','lib','scripts'):
         files.extend(p for p in (product/folder).rglob('*') if p.is_file())
     for p in sorted(files, key=lambda f:f.relative_to(product).as_posix()):
@@ -56,6 +58,7 @@ def main(upstream, product):
     git(product,'init','--quiet','--initial-branch=main')
     git(product,'config','core.autocrlf','false')
     git(product,'apply','--unidiff-zero','--whitespace=nowarn',str(ROOT/'changes.patch'))
+    git(product,'apply','--whitespace=error',str(ROOT/'ci/standalone-skill.patch'))
     shutil.copytree(ROOT/'source',product,dirs_exist_ok=True)
     actual=source_digest(product)
     expected=json.loads((ROOT/'ci/expected.json').read_text(encoding='utf-8'))

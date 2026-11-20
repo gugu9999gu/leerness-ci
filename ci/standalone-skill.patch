@@ -1,0 +1,11 @@
+diff --git a/bin/leerness.js b/bin/leerness.js
+index ec951926..16ecc647 100644
+--- a/bin/leerness.js
++++ b/bin/leerness.js
+@@ -1505,2 +1505,6 @@ function _warnLegacySkillFile(root) {
+ function managedMerge(file, next, previous, archiveDir, mergeOpts = {}) {
++  if (file === '.claude/skills/leerness/SKILL.md' && /^---\r?\n/.test(previous)) {
++    const [header] = previous.split(/\r?\n---(?:\r?\n|$)/, 1);
++    if (/^# leerness-standalone v\d+ sha256=[a-f0-9]{64}\r?$/m.test(header)) return previous;
++  }
+   if (contextReading.preserveCursorRulePolicy(file, next, previous, mergeOpts.altTemplate)) return previous;

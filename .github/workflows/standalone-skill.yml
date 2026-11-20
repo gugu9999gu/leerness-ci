@@ -1,0 +1,39 @@
+name: Standalone Skill CI
+
+on:
+  push:
+    branches: [snapshots/standalone-skill]
+
+permissions:
+  contents: read
+
+jobs:
+  standalone-skill:
+    name: Standalone Skill (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      LEERNESS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: gugu9999gu/leerness
+          ref: b5a3c4631353ba0ab7171cfce5b0c60353223ea3
+          path: upstream
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22.23.4'
+          package-manager-cache: false
+      - name: Assemble and verify public source
+        run: python ci/prepare.py upstream product
+      - name: Standalone Skill installation and CLI coexistence
+        working-directory: product
+        run: python scripts/standalone-skill-test.py -v
